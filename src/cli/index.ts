@@ -2,6 +2,8 @@ import { render } from "ink";
 import { createElement } from "react";
 import { resolveSession, type SessionListing } from "./resolve-session.js";
 import { SessionPicker } from "../tui/SessionPicker.js";
+import { buildProfile } from "../artifact/profile.js";
+import { writeProfileArtifact } from "../artifact/write.js";
 
 export interface CliArgs {
   sessionId: string | undefined;
@@ -167,6 +169,21 @@ export async function run(
     id = resolved.id;
   }
 
-  stdout(`claude-profiler: profiling for "${id}" (${filePath}) is not implemented yet.\n`);
+  const profile = await buildProfile({
+    sessionId: id,
+    transcriptPath: filePath,
+    generatorVersion: version,
+  });
+  const artifactPath = await writeProfileArtifact(profile, args.out);
+
+  if (args.json) {
+    stdout(`${JSON.stringify(profile)}\n`);
+    return 0;
+  }
+
+  stdout(
+    `claude-profiler: wrote profile artifact to ${artifactPath}\n` +
+      "the TUI is not implemented yet; pass --json to inspect the artifact.\n",
+  );
   return 0;
 }

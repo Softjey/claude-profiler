@@ -1,0 +1,77 @@
+import { readFile, mkdtemp, rm } from "node:fs/promises";
+import { homedir } from "node:os";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defaultProfilePath, writeProfileArtifact } from "./write.js";
+import type { Profile } from "./profile.js";
+
+function minimalProfile(sessionId: string): Profile {
+  return {
+    schemaVersion: "0.1",
+    generatedAt: "2026-01-01T00:00:00.000Z",
+    generator: { name: "claude-profiler", version: "0.1.0" },
+    session: {
+      sessionId,
+      transcriptPath: "/tmp/x.jsonl",
+      projectPath: undefined,
+      gitBranch: undefined,
+      title: undefined,
+      startedAt: null,
+      endedAt: null,
+      spanMs: 0,
+      ccVersions: [],
+      models: [],
+      turnCount: 0,
+      messageCount: 0,
+      isSidechain: false,
+    },
+    timeline: {
+      modelMs: 0,
+      toolsMs: 0,
+      userMs: 0,
+      unaccountedMs: 0,
+      spanMs: 0,
+      toolsIncludeApprovals: true,
+      precision: "derived",
+    },
+    tools: [],
+    subagents: [],
+    tokens: { byModel: {}, totals: { input: 0, output: 0, thinking: 0, cacheRead: 0, cacheCreate1h: 0, cacheCreate5m: 0 } },
+    cost: null,
+    context: { turns: [] },
+    diagnostics: { skippedLines: 0, unknownRecordTypes: {}, unmatchedToolUses: 0, versionsSeen: [] },
+  };
+}
+
+describe("defaultProfilePath", () => {
+  it("points at ~/.claude/profiler/profiles/<sessionId>.json", () => {
+    expect(defaultProfilePath("sess-1")).toBe(
+      join(homedir(), ".claude", "profiler", "profiles", "sess-1.json"),
+    );
+  });
+});
+
+describe("writeProfileArtifact", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "claude-profiler-write-"));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("writes the profile as JSON to the given --out path, creating parent dirs", async () => {
+    const outPath = join(dir, "nested", "profile.json");
+    const profile = minimalProfile("sess-1");
+
+    const written = await writeProfileArtifact(profile, outPath);
+
+    expect(written).toBe(outPath);
+    const parsed = JSON.parse(await readFile(outPath, "utf8"));
+    expect(parsed.schemaVersion).toBe("0.1");
+    expect(parsed.session.sessionId).toBe("sess-1");
+  });
+});
