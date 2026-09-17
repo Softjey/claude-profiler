@@ -51,7 +51,7 @@ export function SubagentDetailScreen({ subagent, profile, nav }: SubagentDetailS
       <Box marginY={1}>
         <TimeSplitBar timeline={subagent.timeline} />
       </Box>
-      <ToolTable tools={tools} selectedIndex={selectedIndex} sortKey="totalMs" filter="" />
+      <ToolTable tools={tools} selectedIndex={selectedIndex} sortKey="totalMs" filter="" active />
       <Box marginTop={1}>
         <Text dimColor>↑↓ select · ⏎ drill in · Esc back</Text>
       </Box>

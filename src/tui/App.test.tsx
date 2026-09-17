@@ -137,6 +137,8 @@ describe("App", () => {
     ];
 
     const { lastFrame, stdin } = render(createElement(App, { profile }));
+    stdin.write("\x1B[B"); // down arrow: Model -> Tools (default category is Model)
+    await tick();
     stdin.write("\r"); // categories -> detail focus
     await tick();
     stdin.write("\r"); // drill into the Bash row

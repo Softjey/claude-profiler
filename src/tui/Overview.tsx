@@ -23,17 +23,19 @@ type Focus = "categories" | "detail";
  * tab registry, not here.
  */
 export function OverviewScreen({ profile, nav }: ScreenProps): React.JSX.Element {
-  // The highlighted tool row lives on the nav stack's own frame (nav.selection),
-  // not local useState: popping back from ToolDetail remounts this screen
-  // fresh (T14's nav stack replaces the whole subtree at each push/pop), so
-  // anything kept in local state here would reset to its initial value on
-  // the way back. nav.selection is what T14's "Esc restores the exact
-  // previous selection" acceptance criterion depends on. category/focus reset
-  // to their defaults on that same remount, which is harmless: the only path
-  // that pushes a screen (drilling into a Tools row) only exists when they
-  // were already at their defaults ("tools" categorized, "detail" focused).
+  // The highlighted tool row and the active category both live on the nav
+  // stack's own frame (nav.selection / nav.view), not local useState: popping
+  // back from ToolDetail or PromptDetail remounts this screen fresh (T14's
+  // nav stack replaces the whole subtree at each push/pop), so anything kept
+  // in local state here would reset to its initial value on the way back.
+  // Category has to survive that the same way selection does — otherwise
+  // drilling into a Tools row and hitting Esc would dump you back on Model
+  // (index 0, the default) instead of the Tools category you were actually
+  // on. `focus` stays local state and *does* reset to "categories" on that
+  // remount: that's deliberate, not a gap — the cursor should land back on
+  // the category bar, not silently reappear "inside" the table again.
   const selectedIndex = nav.selection;
-  const [category, setCategory] = useState<Category>("tools");
+  const category = (CATEGORY_KEYS[nav.view] ?? CATEGORY_KEYS[0]) as Category;
   const [focus, setFocus] = useState<Focus>("categories");
   const [modelSelection, setModelSelection] = useState(0);
   const [youSelection, setYouSelection] = useState(0);
@@ -60,8 +62,7 @@ export function OverviewScreen({ profile, nav }: ScreenProps): React.JSX.Element
     if (key.upArrow || key.downArrow) {
       const delta = key.upArrow ? -1 : 1;
       if (focus === "categories") {
-        const currentIndex = CATEGORY_KEYS.indexOf(category);
-        setCategory(CATEGORY_KEYS[(currentIndex + delta + CATEGORY_KEYS.length) % CATEGORY_KEYS.length] as Category);
+        nav.setView((nav.view + delta + CATEGORY_KEYS.length) % CATEGORY_KEYS.length);
       } else if (category === "tools") {
         nav.setSelection(rows.length === 0 ? 0 : (selectedIndex + delta + rows.length) % rows.length);
       } else if (category === "model") {
@@ -101,11 +102,16 @@ export function OverviewScreen({ profile, nav }: ScreenProps): React.JSX.Element
         <TimeSplitBar timeline={profile.timeline} activeCategory={category} />
       </Box>
       {category === "tools" ? (
-        <ToolTable tools={profile.tools} selectedIndex={selectedIndex} sortKey={sortKey} filter={filter} />
+        <ToolTable tools={profile.tools} selectedIndex={selectedIndex} sortKey={sortKey} filter={filter} active={inDetail} />
       ) : category === "model" ? (
-        <ModelSplitTable modelMs={profile.timeline.modelMs} tokens={profile.tokens.totals} selectedIndex={modelSelection} />
+        <ModelSplitTable
+          modelMs={profile.timeline.modelMs}
+          tokens={profile.tokens.totals}
+          selectedIndex={modelSelection}
+          active={inDetail}
+        />
       ) : category === "you" ? (
-        <UserPromptList userGaps={profile.timeline.userGaps} selectedIndex={youSelection} />
+        <UserPromptList userGaps={profile.timeline.userGaps} selectedIndex={youSelection} active={inDetail} />
       ) : (
         <UnaccountedBreakdown timeline={profile.timeline} unmatchedToolUses={profile.diagnostics.unmatchedToolUses} />
       )}

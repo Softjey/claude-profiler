@@ -51,12 +51,24 @@ describe("ToolTable", () => {
     ];
 
     const { lastFrame } = render(
-      createElement(ToolTable, { tools, selectedIndex: 0, sortKey: "totalMs", filter: "" }),
+      createElement(ToolTable, { tools, selectedIndex: 0, sortKey: "totalMs", filter: "", active: true }),
     );
     const frame = lastFrame() ?? "";
     const lines = frame.split("\n");
 
     expect(lines.find((l) => l.includes("Bash"))).toBeDefined();
     expect(lines.find((l) => l.includes("computer"))).toBeDefined();
+  });
+
+  it("hides the row marker when the cursor is still on the category bar above", () => {
+    const tools = [makeTool({ name: "Bash" }), makeTool({ name: "Read" })];
+
+    const { lastFrame } = render(
+      createElement(ToolTable, { tools, selectedIndex: 0, sortKey: "totalMs", filter: "", active: false }),
+    );
+    const frame = lastFrame() ?? "";
+    const bashLine = frame.split("\n").find((l) => l.includes("Bash"));
+
+    expect(bashLine).not.toContain(">");
   });
 });

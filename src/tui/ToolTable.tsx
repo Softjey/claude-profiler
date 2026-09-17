@@ -43,9 +43,16 @@ export interface ToolTableProps {
   selectedIndex: number;
   sortKey: SortKey;
   filter: string;
+  /**
+   * Whether the cursor is actually inside this table (vs. still on the
+   * category bar above it). When false, no row is highlighted — otherwise a
+   * row appears "selected" while the user is navigating Model/Tools/You/
+   * Unaccounted, wrongly suggesting this table is what's being controlled.
+   */
+  active: boolean;
 }
 
-export function ToolTable({ tools, selectedIndex, sortKey, filter }: ToolTableProps): React.JSX.Element {
+export function ToolTable({ tools, selectedIndex, sortKey, filter, active }: ToolTableProps): React.JSX.Element {
   const rows = sortTools(tools, sortKey, filter);
   // Same windowing as Timeline.tsx's TimelineScreen (see ToolDetail.tsx's
   // identical comment): without it a session with more tools than fit on
@@ -86,7 +93,7 @@ export function ToolTable({ tools, selectedIndex, sortKey, filter }: ToolTablePr
         <Text dimColor>No tool calls match.</Text>
       ) : (
         visibleRows.map((tool, i) => {
-          const selected = windowStart + i === selectedIndex;
+          const selected = active && windowStart + i === selectedIndex;
           const color = selected ? "cyan" : "white";
           const marker = selected ? ">" : " ";
           return (

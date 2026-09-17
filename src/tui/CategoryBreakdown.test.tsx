@@ -31,6 +31,7 @@ describe("ModelSplitTable", () => {
         modelMs: 4000,
         tokens: makeBucket({ output: 1000, thinking: 500 }),
         selectedIndex: 0,
+        active: true,
       }),
     );
     const frame = lastFrame() ?? "";
@@ -41,7 +42,7 @@ describe("ModelSplitTable", () => {
 
   it("marks the selected row", () => {
     const { lastFrame } = render(
-      createElement(ModelSplitTable, { modelMs: 4000, tokens: makeBucket({ output: 1000 }), selectedIndex: 1 }),
+      createElement(ModelSplitTable, { modelMs: 4000, tokens: makeBucket({ output: 1000 }), selectedIndex: 1, active: true }),
     );
     const frame = lastFrame() ?? "";
     const generationLine = frame.split("\n").find((l) => l.includes("Generation"));
@@ -58,7 +59,7 @@ describe("UserPromptList", () => {
 
   it("shows one row per prompt with its own preview and how long it took to write", () => {
     const userGaps = [makeGap({ preview: "first prompt", gapMs: 5000 }), makeGap({ preview: "second prompt", gapMs: 20_000 })];
-    const { lastFrame } = render(createElement(UserPromptList, { userGaps, selectedIndex: 0 }));
+    const { lastFrame } = render(createElement(UserPromptList, { userGaps, selectedIndex: 0, active: true }));
     const frame = lastFrame() ?? "";
     expect(frame).toContain("first prompt");
     expect(frame).toContain("second prompt");
@@ -67,7 +68,7 @@ describe("UserPromptList", () => {
 
   it("marks the selected row", () => {
     const userGaps = [makeGap({ preview: "first prompt" }), makeGap({ preview: "second prompt" })];
-    const { lastFrame } = render(createElement(UserPromptList, { userGaps, selectedIndex: 1 }));
+    const { lastFrame } = render(createElement(UserPromptList, { userGaps, selectedIndex: 1, active: true }));
     const frame = lastFrame() ?? "";
     const firstLine = frame.split("\n").find((l) => l.includes("first prompt"));
     const secondLine = frame.split("\n").find((l) => l.includes("second prompt"));
@@ -76,7 +77,7 @@ describe("UserPromptList", () => {
   });
 
   it("handles a session with no gaps", () => {
-    const { lastFrame } = render(createElement(UserPromptList, { userGaps: [], selectedIndex: 0 }));
+    const { lastFrame } = render(createElement(UserPromptList, { userGaps: [], selectedIndex: 0, active: true }));
     expect(lastFrame()).toContain("No prompts");
   });
 });

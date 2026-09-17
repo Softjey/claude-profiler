@@ -83,8 +83,17 @@ function renderOverview(profile: Profile) {
 }
 
 describe("OverviewScreen", () => {
-  it("shows the tool table", () => {
+  it("shows the model breakdown by default", () => {
     const { lastFrame } = renderOverview(makeProfile());
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("Thinking");
+    expect(frame).toContain("Generation");
+  });
+
+  it("shows the tool table after moving to the Tools category", async () => {
+    const { lastFrame, stdin } = renderOverview(makeProfile());
+    stdin.write("[B"); // down arrow: Model -> Tools
+    await tick();
     const frame = lastFrame() ?? "";
     expect(frame).toContain("Bash");
     expect(frame).toContain("Read");
@@ -92,6 +101,8 @@ describe("OverviewScreen", () => {
 
   it("cycles the sort key on 's'", async () => {
     const { lastFrame, stdin } = renderOverview(makeProfile());
+    stdin.write("[B"); // down arrow: Model -> Tools
+    await tick();
     expect(lastFrame()).toContain("sorted by total");
     stdin.write("s");
     await tick();
@@ -100,6 +111,8 @@ describe("OverviewScreen", () => {
 
   it("filters the tool table on '/'", async () => {
     const { lastFrame, stdin } = renderOverview(makeProfile());
+    stdin.write("[B"); // down arrow: Model -> Tools
+    await tick();
     stdin.write("/");
     await tick();
     stdin.write("rea");
@@ -112,7 +125,9 @@ describe("OverviewScreen", () => {
   it("drills into the selected tool on Enter, and Esc returns to the exact previous selection", async () => {
     const { lastFrame, stdin } = renderOverview(makeProfile());
 
-    // Enter: category focus -> detail focus, still on "tools" (the default category)
+    // Move to the "tools" category (default is "model"), then Enter into detail focus
+    stdin.write("[B"); // down arrow: model -> tools
+    await tick();
     stdin.write("\r");
     await tick();
     // select the second row ("Read"), then drill in
@@ -124,12 +139,22 @@ describe("OverviewScreen", () => {
 
     stdin.write(""); // Esc
     await tick();
-    const frame = lastFrame() ?? "";
+    let frame = lastFrame() ?? "";
     expect(frame).toContain("Bash");
     expect(frame).toContain("Read");
-    // back on Overview with "Read" (row 1) still the selected row (">"), not reset to "Bash" (row 0)
-    const readLine = frame.split("\n").find((l) => l.includes("Read"));
-    const bashLine = frame.split("\n").find((l) => l.includes("Bash"));
+    // Back on Overview, focus reset to the category bar (T-fix: the cursor sitting on the
+    // aggregated row above must not also make a row in the table below look selected).
+    let readLine = frame.split("\n").find((l) => l.includes("Read"));
+    let bashLine = frame.split("\n").find((l) => l.includes("Bash"));
+    expect(readLine).not.toContain(">");
+    expect(bashLine).not.toContain(">");
+
+    // Enter again: back in detail focus, "Read" (row 1) is still the preserved selection
+    stdin.write("\r");
+    await tick();
+    frame = lastFrame() ?? "";
+    readLine = frame.split("\n").find((l) => l.includes("Read"));
+    bashLine = frame.split("\n").find((l) => l.includes("Bash"));
     expect(readLine).toContain(">");
     expect(bashLine).not.toContain(">");
   });
@@ -150,10 +175,12 @@ describe("OverviewScreen", () => {
       }),
     );
 
-    // default: "tools" highlighted, category focus (not yet "into" the table)
+    // default: "model" highlighted, category focus (not yet "into" the table)
     expect(lastFrame()).toContain("↑↓ category");
 
-    stdin.write("[B"); // down arrow: Tools -> You
+    stdin.write("[B"); // down arrow: Model -> Tools
+    await tick();
+    stdin.write("[B"); // Tools -> You
     await tick();
     stdin.write("\r"); // Enter: into You's breakdown
     await tick();

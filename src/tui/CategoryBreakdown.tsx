@@ -22,6 +22,8 @@ export interface ModelSplitTableProps {
   modelMs: number;
   tokens: TokenBucket;
   selectedIndex: number;
+  /** See ToolTableProps.active: only highlight once the cursor is in this table. */
+  active: boolean;
 }
 
 /**
@@ -29,7 +31,7 @@ export interface ModelSplitTableProps {
  * side's share of thinking/output tokens rather than measured — see
  * `computeModelSplit` for why a real wall-clock split isn't possible.
  */
-export function ModelSplitTable({ modelMs, tokens, selectedIndex }: ModelSplitTableProps): React.JSX.Element {
+export function ModelSplitTable({ modelMs, tokens, selectedIndex, active }: ModelSplitTableProps): React.JSX.Element {
   const split = computeModelSplit(modelMs, tokens);
   const rows = [
     { label: "Thinking", ms: split.thinkingMs, tokens: split.thinkingTokens, color: "magenta" },
@@ -41,7 +43,7 @@ export function ModelSplitTable({ modelMs, tokens, selectedIndex }: ModelSplitTa
       <Text dimColor>estimated from each turn's share of thinking vs. output tokens, not measured</Text>
       {rows.map((row, i) => {
         const fraction = modelMs > 0 ? row.ms / modelMs : 0;
-        const selected = i === selectedIndex;
+        const selected = active && i === selectedIndex;
         return (
           <Box key={row.label}>
             <Box width={13}>
@@ -64,6 +66,8 @@ export function ModelSplitTable({ modelMs, tokens, selectedIndex }: ModelSplitTa
 export interface UserPromptListProps {
   userGaps: UserGap[];
   selectedIndex: number;
+  /** See ToolTableProps.active: only highlight once the cursor is in this table. */
+  active: boolean;
 }
 
 const PROMPT_INDEX_WIDTH = 5;
@@ -77,7 +81,7 @@ const PROMPT_TOOK_WIDTH = 9;
  * actually be identified rather than just counted. `⏎` on a row pushes
  * PromptDetail, which shows the prompt's untruncated text (Overview.tsx).
  */
-export function UserPromptList({ userGaps, selectedIndex }: UserPromptListProps): React.JSX.Element {
+export function UserPromptList({ userGaps, selectedIndex, active }: UserPromptListProps): React.JSX.Element {
   if (userGaps.length === 0) {
     return <Text dimColor>No prompts follow a reply in this session.</Text>;
   }
@@ -109,7 +113,7 @@ export function UserPromptList({ userGaps, selectedIndex }: UserPromptListProps)
       </Box>
       {visibleGaps.map((gap, i) => {
         const absoluteIndex = windowStart + i;
-        const selected = absoluteIndex === selectedIndex;
+        const selected = active && absoluteIndex === selectedIndex;
         const color = selected ? "cyan" : "white";
         return (
           <Box key={`${absoluteIndex}-${gap.preview}`}>
