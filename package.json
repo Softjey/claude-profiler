@@ -5,7 +5,8 @@
   "type": "module",
   "license": "MIT",
   "bin": {
-    "claude-profiler": "dist/cli/bin.js"
+    "claude-profiler": "dist/cli/bin.js",
+    "cprof": "dist/cli/bin.js"
   },
   "files": [
     "dist",

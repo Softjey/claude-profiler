@@ -17,6 +17,12 @@ measurements, not advice.
 npx claude-profiler <sessionId>
 ```
 
+Once installed globally, the shorter `cprof` alias works the same way:
+
+```sh
+cprof <sessionId>
+```
+
 `<sessionId>` can be a full UUID, a unique prefix, or an `agent-*` subagent transcript
 name. `claude-profiler` searches every project directory under `~/.claude/projects/` for
 a match; if the same id shows up in more than one project, you get an interactive picker.
