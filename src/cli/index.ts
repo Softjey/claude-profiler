@@ -13,6 +13,8 @@ import "../tui/Timeline.js";
 import "../tui/Context.js";
 import { buildProfile, type Profile } from "../artifact/profile.js";
 import { writeProfileArtifact } from "../artifact/write.js";
+import { installHooks } from "../hooks/install.js";
+import { uninstallHooks } from "../hooks/uninstall.js";
 
 export interface CliArgs {
   sessionId: string | undefined;
@@ -37,6 +39,11 @@ Options:
   --out <path>     Write the JSON artifact to <path>
   --version        Print the version number and exit
   --help           Show this help message and exit
+
+Other commands:
+  install-hooks    Install PreToolUse/PostToolUse hooks in ~/.claude/settings.json
+                   for exact tool timings
+  uninstall-hooks  Remove the hooks that install-hooks added
 `;
 
 export function parseArgs(argv: string[]): CliArgs {
@@ -139,6 +146,18 @@ export async function run(
   stdout: (s: string) => void = (s) => process.stdout.write(s),
   stderr: (s: string) => void = (s) => process.stderr.write(s),
 ): Promise<number> {
+  if (argv[0] === "install-hooks") {
+    const result = await installHooks({ stdout });
+    stdout(result.message);
+    return result.status === "aborted" ? 1 : 0;
+  }
+
+  if (argv[0] === "uninstall-hooks") {
+    const result = uninstallHooks();
+    stdout(result.message);
+    return 0;
+  }
+
   let args: CliArgs;
   try {
     args = parseArgs(argv);
