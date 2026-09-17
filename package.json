@@ -1,0 +1,33 @@
+{
+  "name": "claude-profiler",
+  "version": "0.1.0",
+  "description": "Profile a Claude Code session transcript: see where the time went, per tool and per turn.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "claude-profiler": "dist/cli/bin.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "ink": "^7.1.1",
+    "react": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.3",
+    "@types/react": "^19.2.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
+  }
+}
