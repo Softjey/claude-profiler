@@ -6,6 +6,7 @@ import {
 } from "../model/resolve-subagents.js";
 import { parseTranscript } from "../parse/parse-transcript.js";
 import type { TranscriptRecord } from "../parse/types.js";
+import { computeModelBreakdown, type ModelBreakdown } from "./model-breakdown.js";
 import { computeTimeSplit, type TimeSplit } from "./time-split.js";
 import { computeTokenStats, type TokenStats } from "./tokens.js";
 import { computeToolStats, type ToolStat } from "./tool-stats.js";
@@ -16,6 +17,7 @@ export interface SubagentStat {
   parentToolCallId: string;
   spanMs: number;
   timeline: TimeSplit;
+  modelBreakdown: ModelBreakdown;
   tools: ToolStat[];
   tokens: TokenStats;
 }
@@ -53,6 +55,7 @@ export async function computeSubagentStats(
     const timeline = computeTimeSplit(events, subagentToolUses);
     const tools = computeToolStats(subagentToolUses, timeline.spanMs);
     const tokens = computeTokenStats(events);
+    const modelBreakdown = computeModelBreakdown(events, subagentToolUses);
 
     subagents.push({
       agentId: match.agentId,
@@ -60,6 +63,7 @@ export async function computeSubagentStats(
       parentToolCallId: match.parentToolCallId,
       spanMs: timeline.spanMs,
       timeline,
+      modelBreakdown,
       tools,
       tokens,
     });

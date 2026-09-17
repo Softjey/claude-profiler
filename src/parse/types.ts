@@ -14,6 +14,9 @@ export interface Usage {
     thinking_tokens?: number;
   };
   service_tier?: string;
+  /** "standard" / "fast" — CC's fast-mode flag, absent on older versions. */
+  speed?: string;
+  inference_geo?: string;
 }
 
 export interface TextBlock {
@@ -88,6 +91,17 @@ export interface AssistantRecord extends TranscriptRecordBase {
   type: "assistant";
   message?: AssistantMessage;
   requestId?: string;
+  /** Thinking effort the request ran at ("high", "medium", ...); absent on older versions. */
+  effort?: string;
+  /**
+   * CC's own marker for a record it synthesised in place of a real reply
+   * after the API call failed — `model` is then `<synthetic>` and `error`
+   * names the cause ("server_error", ...). The wall-clock such a record
+   * closes is a failure, not generation, so model-breakdown.ts buckets it
+   * separately instead of billing it to thinking.
+   */
+  isApiErrorMessage?: boolean;
+  error?: string;
 }
 
 export interface UserRecord extends TranscriptRecordBase {
@@ -161,6 +175,8 @@ export interface CostStateRecord extends TranscriptRecordBase {
 
 export interface QueueOperationRecord extends TranscriptRecordBase {
   type: "queue-operation";
+  /** "enqueue" | "dequeue" | "remove" — a prompt typed ahead of the model. */
+  operation?: string;
 }
 
 export interface BridgeSessionRecord extends TranscriptRecordBase {

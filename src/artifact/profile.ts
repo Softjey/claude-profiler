@@ -3,6 +3,7 @@ import { buildEventModel } from "../model/build-model.js";
 import { computeSubagentStats, type SubagentStat } from "../metrics/subagent-stats.js";
 import { computeContextSeries, type ContextSeries } from "../metrics/context.js";
 import { computeCostStats, type CostStats } from "../metrics/cost.js";
+import { computeModelBreakdown, type ModelBreakdown } from "../metrics/model-breakdown.js";
 import { computePrompts, type PromptPoint } from "../metrics/prompts.js";
 import { computeTimeSplit } from "../metrics/time-split.js";
 import { computeTokenStats, type TokenStats } from "../metrics/tokens.js";
@@ -41,6 +42,8 @@ export interface Profile {
   generator: { name: string; version: string };
   session: SessionMeta;
   timeline: MergedTimeSplit;
+  /** The Model bucket, decomposed by what the model was actually doing. */
+  modelBreakdown: ModelBreakdown;
   tools: ExactToolStat[];
   subagents: SubagentStat[];
   tokens: TokenStats;
@@ -154,6 +157,34 @@ function assertTimeSplitInvariant(timeline: MergedTimeSplit, path: string): void
 }
 
 /**
+ * The breakdown explains the Model bucket, so it must add up to it exactly.
+ * A breakdown that drifted from `modelMs` would be a second, contradictory
+ * answer to the same question — worse than no breakdown at all.
+ */
+function assertModelBreakdownInvariant(
+  breakdown: ModelBreakdown,
+  modelMs: number,
+  path: string,
+): void {
+  if (breakdown.totalMs !== modelMs) {
+    throw new ProfileInvariantError(
+      `${path}: model breakdown totals ${breakdown.totalMs}ms but the Model bucket is ${modelMs}ms`,
+    );
+  }
+  const phaseSum = breakdown.phases.reduce((sum, phase) => sum + phase.ms, 0);
+  if (phaseSum !== breakdown.totalMs) {
+    throw new ProfileInvariantError(
+      `${path}: phases sum to ${phaseSum}ms but the breakdown totals ${breakdown.totalMs}ms`,
+    );
+  }
+  if (breakdown.suspectMs > breakdown.totalMs) {
+    throw new ProfileInvariantError(
+      `${path}: suspect time ${breakdown.suspectMs}ms exceeds the breakdown total ${breakdown.totalMs}ms`,
+    );
+  }
+}
+
+/**
  * Runtime-asserted before every write (SPEC step 3): a malformed Profile
  * must throw here rather than reach disk silently.
  */
@@ -163,8 +194,14 @@ export function assertProfileInvariants(profile: Profile): void {
   }
 
   assertTimeSplitInvariant(profile.timeline, "timeline");
+  assertModelBreakdownInvariant(profile.modelBreakdown, profile.timeline.modelMs, "modelBreakdown");
   for (const subagent of profile.subagents) {
     assertTimeSplitInvariant(subagent.timeline, `subagents[${subagent.agentId}].timeline`);
+    assertModelBreakdownInvariant(
+      subagent.modelBreakdown,
+      subagent.timeline.modelMs,
+      `subagents[${subagent.agentId}].modelBreakdown`,
+    );
   }
 
   assertNoNaN(profile, "profile");
@@ -189,6 +226,7 @@ export async function buildProfile(options: BuildProfileOptions): Promise<Profil
 
   const subagentResult = await computeSubagentStats(records, toolUses, transcriptPath);
   const tokens = computeTokenStats(events);
+  const modelBreakdown = computeModelBreakdown(events, toolUses);
   const cost = computeCostStats(records);
   const context = computeContextSeries(events);
   const prompts = computePrompts(events);
@@ -200,6 +238,7 @@ export async function buildProfile(options: BuildProfileOptions): Promise<Profil
     generator: { name: "claude-profiler", version: generatorVersion },
     session,
     timeline: merged.timeline,
+    modelBreakdown,
     tools: merged.tools,
     subagents: subagentResult.subagents,
     tokens,

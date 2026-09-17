@@ -1,14 +1,17 @@
 import type {
   ContentBlock,
   TextBlock,
+  ThinkingBlock,
   ToolResultBlock,
   ToolUseBlock,
   TranscriptRecord,
   UserRecord,
 } from "../parse/types.js";
-import type { EventModel, ModelEvent, ToolUseEvent } from "./events.js";
+import type { BlockKind, EventModel, ModelEvent, ToolUseEvent } from "./events.js";
 
 const PROMPT_PREVIEW_MAX_CHARS = 200;
+/** Shorter than a prompt preview: this only has to label a row in the request list. */
+const REPLY_PREVIEW_MAX_CHARS = 120;
 
 function isToolResultBlock(block: ContentBlock): block is ToolResultBlock {
   return block.type === "tool_result";
@@ -20,6 +23,42 @@ function isToolUseBlock(block: ContentBlock): block is ToolUseBlock {
 
 function isTextBlock(block: ContentBlock): block is TextBlock {
   return block.type === "text";
+}
+
+function isThinkingBlock(block: ContentBlock): block is ThinkingBlock {
+  return block.type === "thinking";
+}
+
+function blockKindOf(block: ContentBlock): BlockKind {
+  if (block.type === "thinking" || block.type === "text" || block.type === "tool_use") return block.type;
+  return "other";
+}
+
+/**
+ * The one label a record's time slice gets when it carried several blocks.
+ * Ordered by what dominates the wall clock: a record with thinking in it
+ * spent that slice thinking, and emitting a tool_use is the cheapest of the
+ * three, so it only wins when nothing else is there.
+ */
+function collapseBlockKinds(kinds: BlockKind[]): BlockKind {
+  if (kinds.includes("thinking")) return "thinking";
+  if (kinds.includes("text")) return "text";
+  if (kinds.includes("tool_use")) return "tool_use";
+  return "other";
+}
+
+/** A one-line preview of what the model itself wrote in this record. */
+function extractReplyPreview(content: ContentBlock[] | undefined): string {
+  if (!Array.isArray(content)) return "";
+  const parts: string[] = [];
+  for (const block of content) {
+    if (isTextBlock(block)) parts.push(block.text ?? "");
+    else if (isThinkingBlock(block)) parts.push(block.thinking ?? "");
+  }
+  const collapsed = parts.join(" ").replace(/\s+/g, " ").trim();
+  return collapsed.length > REPLY_PREVIEW_MAX_CHARS
+    ? `${collapsed.slice(0, REPLY_PREVIEW_MAX_CHARS - 1)}\u2026`
+    : collapsed;
 }
 
 /**
@@ -113,6 +152,7 @@ export function buildEventModel(records: TranscriptRecord[]): EventModel {
   const toolUses: ToolUseEvent[] = [];
   const pendingToolUses = new Map<string, ToolUseEvent>();
   const requestIdsWithCountedUsage = new Set<string>();
+  const requestIdsSeen = new Set<string>();
 
   let turnIndex = -1;
 
@@ -165,12 +205,23 @@ export function buildEventModel(records: TranscriptRecord[]): EventModel {
       // record that actually carries usage owns it; the rest are flagged so
       // token/context sums count each request once (D-follow-up). A record
       // with no requestId (older CC versions) is always its own request.
-      const requestId = record.requestId;
+      // Normalised: CC writes `requestId: null` on the records it synthesises
+      // for a failed API call, and a null key would group every one of them
+      // together as one phantom request.
+      const requestId = record.requestId ?? undefined;
       const isUsageDuplicate =
         usage !== undefined && requestId !== undefined && requestIdsWithCountedUsage.has(requestId);
       if (usage !== undefined && requestId !== undefined && !isUsageDuplicate) {
         requestIdsWithCountedUsage.add(requestId);
       }
+
+      // Tracked separately from `isUsageDuplicate`: usage can be absent on a
+      // record that is still not the request's first (and an API-error record
+      // has no requestId at all, so it is always its own first).
+      const isFirstOfRequest = requestId === undefined || !requestIdsSeen.has(requestId);
+      if (requestId !== undefined) requestIdsSeen.add(requestId);
+
+      const blockKinds = Array.isArray(message?.content) ? message.content.map(blockKindOf) : [];
 
       events.push({
         type: "assistant",
@@ -182,6 +233,13 @@ export function buildEventModel(records: TranscriptRecord[]): EventModel {
         usage,
         requestId,
         isUsageDuplicate,
+        blockKinds,
+        kind: collapseBlockKinds(blockKinds),
+        isFirstOfRequest,
+        effort: record.effort,
+        isApiError: record.isApiErrorMessage === true,
+        errorKind: record.error,
+        preview: extractReplyPreview(message?.content),
       });
 
       const content = message?.content;

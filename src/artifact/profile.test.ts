@@ -227,6 +227,19 @@ describe("assertProfileInvariants", () => {
         precision: "derived",
         userGaps: [],
       },
+      modelBreakdown: {
+        totalMs: 40,
+        phases: [{ kind: "thinking", position: "first", ms: 40, pctOfModel: 1, slices: 1 }],
+        requests: [],
+        suspect: [],
+        suspectMs: 0,
+        stallThresholdTokensPerSec: 1,
+        byCause: [],
+        byModel: [],
+        byEffort: [],
+        coverage: { requestsWithBlockSplit: 0, totalRequests: 1 },
+        precision: "measured",
+      },
       tools: [],
       subagents: [],
       tokens: { byModel: {}, totals: { input: 0, output: 0, thinking: 0, cacheRead: 0, cacheCreate1h: 0, cacheCreate5m: 0 } },
@@ -243,6 +256,19 @@ describe("assertProfileInvariants", () => {
   it("throws when the time split does not sum to the span", () => {
     const profile = validProfile();
     profile.timeline.unaccountedMs = 5; // 40 + 30 + 20 + 5 !== 100
+    expect(() => assertProfileInvariants(profile)).toThrow(ProfileInvariantError);
+  });
+
+  it("throws when the model breakdown does not add up to the Model bucket", () => {
+    const profile = validProfile();
+    profile.modelBreakdown.totalMs = 39; // the bucket says 40
+    expect(() => assertProfileInvariants(profile)).toThrow(ProfileInvariantError);
+  });
+
+  it("throws when the phases do not sum to the breakdown total", () => {
+    const profile = validProfile();
+    const phase = profile.modelBreakdown.phases[0];
+    if (phase) phase.ms = 39;
     expect(() => assertProfileInvariants(profile)).toThrow(ProfileInvariantError);
   });
 

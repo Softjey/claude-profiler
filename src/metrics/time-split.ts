@@ -1,5 +1,11 @@
 import type { ModelEvent, ToolUseEvent } from "../model/events.js";
-import { type Interval, mergeIntervals, subtractIntervals, sumMs } from "./interval.js";
+import { mergeIntervals, subtractIntervals, sumMs } from "./interval.js";
+import {
+  buildModelSegments,
+  buildToolIntervals,
+  collectAllTimestampMs,
+  parseMs,
+} from "./model-intervals.js";
 
 export interface UserGap {
   /** The prompt this gap ends with, as a truncated single-line preview. */
@@ -24,75 +30,6 @@ export interface TimeSplit {
    * slightly more than `userMs` when a tool was still running into the gap.
    */
   userGaps: UserGap[];
-}
-
-function parseMs(at: string | null | undefined): number | null {
-  if (!at) return null;
-  const ms = Date.parse(at);
-  return Number.isFinite(ms) ? ms : null;
-}
-
-/**
- * The largest value in a sorted, ascending, deduplicated array that is
- * strictly less than `ms` — i.e. the previous distinct timestamped point in
- * time. Binary search keeps this cheap across a 6700-line transcript.
- */
-function previousDistinctPoint(sortedUnique: number[], ms: number): number | null {
-  let lo = 0;
-  let hi = sortedUnique.length - 1;
-  let result: number | null = null;
-  while (lo <= hi) {
-    const mid = (lo + hi) >>> 1;
-    const value = sortedUnique[mid];
-    if (value === undefined) break;
-    if (value < ms) {
-      result = value;
-      lo = mid + 1;
-    } else {
-      hi = mid - 1;
-    }
-  }
-  return result;
-}
-
-function collectAllTimestampMs(events: ModelEvent[], toolUses: ToolUseEvent[]): number[] {
-  const points: number[] = [];
-  for (const event of events) {
-    if (event.type === "tool_use") continue; // covered via toolUses below, including its end
-    const ms = parseMs(event.at);
-    if (ms !== null) points.push(ms);
-  }
-  for (const toolUse of toolUses) {
-    const startMs = parseMs(toolUse.startedAt);
-    if (startMs === null) continue;
-    points.push(startMs);
-    if (toolUse.durationMs !== null) points.push(startMs + toolUse.durationMs);
-  }
-  return points;
-}
-
-function buildToolIntervals(toolUses: ToolUseEvent[]): Interval[] {
-  const intervals: Interval[] = [];
-  for (const toolUse of toolUses) {
-    if (toolUse.durationMs === null) continue; // unmatched calls have no end (FR10)
-    const startMs = parseMs(toolUse.startedAt);
-    if (startMs === null) continue;
-    intervals.push({ startMs, endMs: startMs + toolUse.durationMs });
-  }
-  return intervals;
-}
-
-function buildModelIntervals(events: ModelEvent[], sortedUniquePoints: number[]): Interval[] {
-  const intervals: Interval[] = [];
-  for (const event of events) {
-    if (event.type !== "assistant") continue;
-    const assistantMs = parseMs(event.at);
-    if (assistantMs === null) continue;
-    const previousMs = previousDistinctPoint(sortedUniquePoints, assistantMs);
-    if (previousMs === null) continue;
-    intervals.push({ startMs: previousMs, endMs: assistantMs });
-  }
-  return intervals;
 }
 
 interface RawUserGap {
@@ -177,7 +114,7 @@ export function computeTimeSplit(events: ModelEvent[], toolUses: ToolUseEvent[])
 
   const toolsFinal = mergeIntervals(buildToolIntervals(toolUses));
   const modelFinal = subtractIntervals(
-    mergeIntervals(buildModelIntervals(events, sortedUniquePoints)),
+    mergeIntervals(buildModelSegments(events, sortedUniquePoints)),
     toolsFinal,
   );
   const rawUserGaps = collectRawUserGaps(events);
