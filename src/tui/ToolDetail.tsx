@@ -7,6 +7,7 @@ import { callDetailScreen } from "./CallDetail.js";
 import { subagentDetailScreen } from "./SubagentDetail.js";
 
 const NAME_WIDTH = 34;
+const VISIBLE_ROWS = 15;
 
 function sortCallsByDuration(calls: ToolCall[]): ToolCall[] {
   // unfinished calls (durationMs: null, FR10) sort last rather than first/undefined
@@ -36,6 +37,16 @@ export function ToolDetailScreen({ tool, profile, nav }: ToolDetailScreenProps):
   // resolved is the only reliable signal.
   const subagentByCallId = new Map(profile.subagents.map((s) => [s.parentToolCallId, s]));
   const hasSubagentCalls = calls.some((c) => subagentByCallId.has(c.id));
+
+  // Same windowing as Timeline.tsx's TimelineScreen: without it, a tool with
+  // more calls than fit on screen just prints every row, and the terminal's
+  // own scrollback — not this component — decides what's visible, so the
+  // highlighted row can end up off-screen as ↑↓ moves it.
+  const windowStart = Math.min(
+    Math.max(0, selectedIndex - Math.floor(VISIBLE_ROWS / 2)),
+    Math.max(0, calls.length - VISIBLE_ROWS),
+  );
+  const visibleCalls = calls.slice(windowStart, windowStart + VISIBLE_ROWS);
 
   useInput((input, key) => {
     if (calls.length === 0) return;
@@ -78,8 +89,8 @@ export function ToolDetailScreen({ tool, profile, nav }: ToolDetailScreenProps):
       {calls.length === 0 ? (
         <Text dimColor>No calls recorded.</Text>
       ) : (
-        calls.map((call, i) => {
-          const selected = i === selectedIndex;
+        visibleCalls.map((call, i) => {
+          const selected = windowStart + i === selectedIndex;
           const color = selected ? "cyan" : call.isOutlier ? "red" : "white";
           const subagent = subagentByCallId.get(call.id);
           return (
