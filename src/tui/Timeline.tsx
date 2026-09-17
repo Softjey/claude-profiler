@@ -162,20 +162,40 @@ export function TimelineScreen({ profile, nav }: ScreenProps): React.JSX.Element
         })
       )}
       <Box marginTop={1}>
-        <Text dimColor>↑↓ select · ⏎ expand turn · ⇥ next tab · q quit</Text>
+        <Text dimColor>↑↓ select · ⏎ expand turn · ←→ tabs · q quit</Text>
       </Box>
     </Box>
   );
 }
 
 /** `⏎` on a Timeline row (plan T15 step 1): every tool call and assistant-message token point in that turn, in time order — the closest honest substitute for "the turn's events" the artifact can produce (no raw event log is retained). */
-function TurnDetailScreen({ profile, turnIndex }: ScreenProps & { turnIndex: number }): React.JSX.Element {
+function TurnDetailScreen({ profile, turnIndex, nav }: ScreenProps & { turnIndex: number }): React.JSX.Element {
+  // nav.selection, not local useState: see Overview.tsx's comment on the same pattern.
+  const selectedIndex = nav.selection;
   const calls = profile.tools
     .flatMap((tool) => tool.callRefs.filter((c) => c.turnIndex === turnIndex).map((c) => ({ ...c, toolName: tool.name })))
     .sort((a, b) => (parseMs(a.startedAt) ?? 0) - (parseMs(b.startedAt) ?? 0));
   const points = profile.context.turns
     .filter((p) => p.turnIndex === turnIndex)
     .sort((a, b) => (parseMs(a.at) ?? 0) - (parseMs(b.at) ?? 0));
+
+  useInput((_input, key) => {
+    if (calls.length === 0) return;
+    if (key.upArrow) {
+      nav.setSelection((selectedIndex - 1 + calls.length) % calls.length);
+    } else if (key.downArrow) {
+      nav.setSelection((selectedIndex + 1) % calls.length);
+    }
+  });
+
+  // Same windowing as TimelineScreen above: without it a turn with more
+  // calls than fit on screen just prints every row and leaves the
+  // highlighted one to the terminal's own scrollback.
+  const windowStart = Math.min(
+    Math.max(0, selectedIndex - Math.floor(VISIBLE_ROWS / 2)),
+    Math.max(0, calls.length - VISIBLE_ROWS),
+  );
+  const visibleCalls = calls.slice(windowStart, windowStart + VISIBLE_ROWS);
 
   return (
     <Box flexDirection="column">
@@ -185,13 +205,17 @@ function TurnDetailScreen({ profile, turnIndex }: ScreenProps & { turnIndex: num
         {calls.length === 0 ? (
           <Text dimColor>None.</Text>
         ) : (
-          calls.map((call) => (
-            <Text key={call.id}>
-              {formatDateTime(call.startedAt)} · {call.toolName} ·{" "}
-              {call.durationMs === null ? "unfinished" : formatMs(call.durationMs)}
-              {call.isOutlier ? " (outlier)" : ""}
-            </Text>
-          ))
+          visibleCalls.map((call, i) => {
+            const selected = windowStart + i === selectedIndex;
+            return (
+              <Text key={call.id} {...(selected ? { color: "cyan" as const } : {})}>
+                {selected ? "> " : "  "}
+                {formatDateTime(call.startedAt)} · {call.toolName} ·{" "}
+                {call.durationMs === null ? "unfinished" : formatMs(call.durationMs)}
+                {call.isOutlier ? " (outlier)" : ""}
+              </Text>
+            );
+          })
         )}
       </Box>
       <Box marginTop={1} flexDirection="column">
@@ -199,16 +223,19 @@ function TurnDetailScreen({ profile, turnIndex }: ScreenProps & { turnIndex: num
         {points.length === 0 ? (
           <Text dimColor>None.</Text>
         ) : (
-          points.map((point, i) => (
+          points.slice(0, VISIBLE_ROWS).map((point, i) => (
             <Text key={`${point.turnIndex}-${i}`}>
               {formatDateTime(point.at)} · cache read {formatCount(point.cacheReadTokens)} · output{" "}
               {formatCount(point.outputTokens)} · thinking {formatCount(point.thinkingTokens)}
             </Text>
           ))
         )}
+        {points.length > VISIBLE_ROWS ? (
+          <Text dimColor>… {points.length - VISIBLE_ROWS} more not shown</Text>
+        ) : null}
       </Box>
       <Box marginTop={1}>
-        <Text dimColor>Esc back</Text>
+        <Text dimColor>{calls.length > 0 ? "↑↓ select · " : ""}Esc back</Text>
       </Box>
     </Box>
   );
