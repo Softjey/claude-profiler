@@ -51,8 +51,16 @@ export interface ModelStageSplit {
   totalRequests: number;
 }
 
-/** Below this many usable requests the slope says more about the sample than the session. */
-const MIN_SAMPLE = 8;
+/**
+ * Below this many usable requests the slope says more about the sample than
+ * the session. Set from the spread of the fit across 777 local transcripts,
+ * where it falls monotonically with sample size — median half-spread 31.2% at
+ * 8–15 requests (p90 1539.8%), 27.5% at 16–31, 21.0% at 32–63, 14.0% at
+ * 64–127, 11.5% at 128–255. A short session does not have an erratic speed;
+ * it has too few points to find one, and 8 was low enough to hand back noise
+ * with a straight face.
+ */
+const MIN_SAMPLE = 32;
 
 /**
  * Least-squares slope of model time against output tokens. The intercept is

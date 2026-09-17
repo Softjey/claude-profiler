@@ -429,6 +429,13 @@ this plan assumes its data model and FR numbering.
   landed the wrong way the screen swapped to an entirely different table with different row
   names. A number the reader can weigh beats a cliff they cannot see. The spread is now
   shown beside the rate, and the drill-down renders one table with one note line.
+- **Amended again — the sample floor was the real knob.** Surveying all 777 local
+  transcripts showed the half-spread is mostly a function of sample size, not of a session
+  being erratic: median 31.2% at 8–15 requests (p90 1539.8%), 27.5% at 16–31, 21.0% at
+  32–63, 14.0% at 64–127, 11.5% at 128–255. The spread gate was a sample-size filter in
+  disguise, and a badly calibrated one — its 25% line sat on the 20.8% median and refused
+  43% of all fits. `MIN_SAMPLE` went 8 → 32, which is the honest version of what that gate
+  was groping for. Cost: 215 of 777 sessions show the stages instead of 419.
 - **Acceptance criteria:**
   - The three stages sum to `timeline.modelMs`, asserted before the artifact is written.
   - A planted rate is recovered from synthetic data, and planted per-request overhead lands

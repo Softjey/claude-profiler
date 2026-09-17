@@ -117,12 +117,17 @@ wrong. The rate is the only coefficient stable enough to use: fitting waiting di
 against context size or as a constant, produced coefficients that flipped sign between the
 two halves of the same session, while the slope moved 2–3%.
 
+The 32-request floor is not a guess either. Across 777 local transcripts the fit's
+half-spread falls monotonically with sample size — a median of 31.2% at 8–15 requests
+(p90 1539.8%), 27.5% at 16–31, 21.0% at 32–63, 14.0% at 64–127, 11.5% at 128–255. A short
+session does not have an erratic speed; it has too few points to find one.
+
 `±26.0% across halves` is that stability, measured on the session in front of you and
 reported rather than ruled on — refit the first and second halves separately and this is how
 far the rate moved. A small number means the session had one speed; a large one means it did
 not, and the split is correspondingly rough.
 
-When no rate can be fitted at all — fewer than 8 usable requests, or a slope saying more
+When no rate can be fitted at all — fewer than 32 usable requests, or a slope saying more
 output took less time — the drill-down falls back to the time exactly as Claude Code recorded
 it, one transcript record per content block:
 

@@ -53,7 +53,7 @@ function breakdownOf(requests: ModelRequest[]): ModelBreakdown {
  * A session with a clean 100 tok/s generation rate and 2s of waiting on every
  * request: `totalMs = 2000 + outputTokens * 10`.
  */
-function cleanSession(count = 12): ModelRequest[] {
+function cleanSession(count = 40): ModelRequest[] {
   return Array.from({ length: count }, (_, i) => {
     const outputTokens = 100 + i * 50;
     return request({ totalMs: 2000 + outputTokens * 10, outputTokens });
@@ -71,10 +71,10 @@ describe("computeModelStages", () => {
     const requests = cleanSession();
     const split = computeModelStages(breakdownOf(requests));
     const stages = Object.fromEntries((split?.stages ?? []).map((s) => [s.stage, s.ms]));
-    // 12 requests x 2s of overhead, and no thinking tokens anywhere.
-    expect(stages.waiting).toBeCloseTo(24_000, 3);
+    // 40 requests x 2s of overhead, and no thinking tokens anywhere.
+    expect(stages.waiting).toBeCloseTo(80_000, 3);
     expect(stages.thinking).toBe(0);
-    expect(stages.generating).toBeCloseTo(breakdownOf(requests).totalMs - 24_000, 3);
+    expect(stages.generating).toBeCloseTo(breakdownOf(requests).totalMs - 80_000, 3);
   });
 
   it("prices thinking from the measured thinking tokens", () => {
@@ -87,7 +87,7 @@ describe("computeModelStages", () => {
   });
 
   it("always sums back to the Model bucket it is explaining", () => {
-    const breakdown = breakdownOf(cleanSession(20));
+    const breakdown = breakdownOf(cleanSession(50));
     const split = computeModelStages(breakdown);
     const sum = (split?.stages ?? []).reduce((total, stage) => total + stage.ms, 0);
     expect(sum).toBeCloseTo(breakdown.totalMs, 6);
@@ -105,18 +105,22 @@ describe("computeModelStages", () => {
   });
 
   it("refuses a session with too few requests to fit", () => {
-    expect(computeModelStages(breakdownOf(cleanSession(4)))).toBeNull();
+    // Just under MIN_SAMPLE: a rate fitted here describes the sample, not the
+    // session — measured across 777 real transcripts, the fit's half-spread
+    // only settles once a session carries a few dozen requests.
+    expect(computeModelStages(breakdownOf(cleanSession(31)))).toBeNull();
+    expect(computeModelStages(breakdownOf(cleanSession(32)))).not.toBeNull();
   });
 
   it("reports an unstable rate rather than refusing to answer", () => {
     // First half at 100 tok/s, second half at 10 tok/s: one slope describes
     // neither well, and saying so beats swapping the table for a different one.
     const requests = [
-      ...Array.from({ length: 8 }, (_, i) => {
+      ...Array.from({ length: 20 }, (_, i) => {
         const outputTokens = 100 + i * 50;
         return request({ totalMs: 2000 + outputTokens * 10, outputTokens });
       }),
-      ...Array.from({ length: 8 }, (_, i) => {
+      ...Array.from({ length: 20 }, (_, i) => {
         const outputTokens = 100 + i * 50;
         return request({ totalMs: 2000 + outputTokens * 100, outputTokens });
       }),
@@ -135,11 +139,11 @@ describe("computeModelStages", () => {
   });
 
   it("reports how many requests it had to clamp rather than hiding them", () => {
-    const requests = cleanSession(30);
-    // Faster than the fitted rate, so its predicted generation (12s) overruns
+    const requests = cleanSession(50);
+    // Faster than the fitted rate, so its predicted generation (14s) overruns
     // the 2s it actually had. Its token count sits on the mean of the half it
     // lands in, where it has almost no leverage, so the fit itself survives it.
-    requests.splice(22, 0, request({ totalMs: 2000, outputTokens: 1200 }));
+    requests.splice(37, 0, request({ totalMs: 2000, outputTokens: 1400 }));
     const split = computeModelStages(breakdownOf(requests));
     expect(split?.clampedRequests).toBeGreaterThan(0);
     expect(split?.totalRequests).toBe(requests.length);
