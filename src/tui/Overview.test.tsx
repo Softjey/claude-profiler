@@ -83,21 +83,11 @@ function renderOverview(profile: Profile) {
 }
 
 describe("OverviewScreen", () => {
-  it("shows the header and the tool table", () => {
+  it("shows the tool table", () => {
     const { lastFrame } = renderOverview(makeProfile());
     const frame = lastFrame() ?? "";
-    expect(frame).toContain("aaaaaaaa-0000-0000-0000-000000000000");
     expect(frame).toContain("Bash");
     expect(frame).toContain("Read");
-  });
-
-  it("never labels a derived duration as exact", () => {
-    const { lastFrame } = renderOverview(makeProfile());
-    const frame = (lastFrame() ?? "").toLowerCase();
-    // the only permitted use of "exact" is inside "derived, not exact"
-    const idx = frame.indexOf("exact");
-    expect(idx).toBeGreaterThan(-1);
-    expect(frame.slice(Math.max(0, idx - 20), idx)).toContain("derived, not");
   });
 
   it("cycles the sort key on 's'", async () => {

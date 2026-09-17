@@ -3,6 +3,10 @@ import { createElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { Profile } from "../artifact/profile.js";
 import { App } from "./App.js";
+// Registers the Timeline and Context tabs too, so tests below can exercise
+// the arrow-key tab switcher — App.tsx itself only ever imports Overview.
+import "./Timeline.js";
+import "./Context.js";
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
 
@@ -57,5 +61,41 @@ describe("App", () => {
     stdin.write("q");
     await tick();
     expect(onQuit).toHaveBeenCalled();
+  });
+
+  it("shows the session header and derived-timing caveat on every tab", async () => {
+    const { lastFrame, stdin } = render(createElement(App, { profile: makeProfile() }));
+    expect(lastFrame()).toContain("Project");
+    expect(lastFrame()?.toLowerCase()).toContain("derived, not exact");
+
+    stdin.write("[C"); // →
+    await tick();
+    expect(lastFrame()).toContain("Project");
+    expect(lastFrame()?.toLowerCase()).toContain("derived, not exact");
+  });
+
+  it("omits the caveat once precision is exact", () => {
+    const profile = makeProfile();
+    profile.timeline.precision = "exact";
+    const { lastFrame } = render(createElement(App, { profile }));
+    expect(lastFrame()?.toLowerCase()).not.toContain("install-hooks");
+  });
+
+  it("switches and highlights tabs with ←→ instead of Tab", async () => {
+    const { lastFrame, stdin } = render(createElement(App, { profile: makeProfile() }));
+    expect(lastFrame()).toContain("[1/3]");
+
+    stdin.write("\t"); // Tab must no longer switch tabs
+    await tick();
+    expect(lastFrame()).toContain("[1/3]");
+
+    stdin.write("[C"); // →
+    await tick();
+    expect(lastFrame()).toContain("[2/3]");
+    expect(lastFrame()).toContain("Timeline");
+
+    stdin.write("[D"); // ←
+    await tick();
+    expect(lastFrame()).toContain("[1/3]");
   });
 });

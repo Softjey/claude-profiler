@@ -61,7 +61,7 @@ export function ContextScreen({ profile }: ScreenProps): React.JSX.Element {
         <Series title="Thinking tokens" values={thinkingTokens} color="magenta" annotateMinMax={false} />
       </Box>
       <Box marginTop={1}>
-        <Text dimColor>⇥ next tab · q quit</Text>
+        <Text dimColor>←→ tabs · q quit</Text>
       </Box>
     </Box>
   );

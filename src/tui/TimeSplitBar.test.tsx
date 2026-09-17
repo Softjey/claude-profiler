@@ -36,16 +36,4 @@ describe("TimeSplitBar", () => {
     expect(frame).toContain("You");
     expect(frame).toContain("Unaccounted");
   });
-
-  it("shows the derived-timing caveat without ever calling a derived duration exact", () => {
-    const { lastFrame } = render(createElement(TimeSplitBar, { timeline: makeTimeline({ precision: "derived" }) }));
-    const frame = lastFrame() ?? "";
-    expect(frame.toLowerCase()).toContain("derived, not exact");
-  });
-
-  it("omits the caveat once precision is exact", () => {
-    const { lastFrame } = render(createElement(TimeSplitBar, { timeline: makeTimeline({ precision: "exact" }) }));
-    const frame = lastFrame() ?? "";
-    expect(frame.toLowerCase()).not.toContain("install-hooks");
-  });
 });

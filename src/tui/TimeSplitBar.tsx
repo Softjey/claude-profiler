@@ -48,15 +48,6 @@ export function TimeSplitBar({ timeline, activeCategory }: TimeSplitBarProps): R
 
   return (
     <Box flexDirection="column">
-      {timeline.precision === "derived" ? (
-        <Box marginBottom={1}>
-          <Text color="yellow">
-            Tool time includes approval waits — these are derived, not exact. Run
-            `claude-profiler install-hooks` to measure exact tool execution time on future
-            sessions.
-          </Text>
-        </Box>
-      ) : null}
       {segments.map((segment) => {
         const fraction = spanMs > 0 ? segment.ms / spanMs : 0;
         const selected = segment.key === activeCategory;
