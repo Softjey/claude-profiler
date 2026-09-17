@@ -85,7 +85,7 @@ describe("buildProfile", () => {
       profilerDir: dir,
     });
 
-    expect(profile.schemaVersion).toBe("0.1");
+    expect(profile.schemaVersion).toBe("0.2");
     expect(profile.generator).toEqual({ name: "claude-profiler", version: "0.1.0" });
 
     const { modelMs, toolsMs, userMs, unaccountedMs, spanMs } = profile.timeline;
@@ -199,7 +199,7 @@ describe("buildProfile", () => {
 describe("assertProfileInvariants", () => {
   function validProfile(): Profile {
     return {
-      schemaVersion: "0.1",
+      schemaVersion: "0.2",
       generatedAt: iso(0),
       generator: { name: "claude-profiler", version: "0.1.0" },
       session: {
@@ -232,6 +232,8 @@ describe("assertProfileInvariants", () => {
       tokens: { byModel: {}, totals: { input: 0, output: 0, thinking: 0, cacheRead: 0, cacheCreate1h: 0, cacheCreate5m: 0 } },
       cost: null,
       context: { turns: [] },
+      hooks: null,
+      phases: null,
       diagnostics: { skippedLines: 0, unknownRecordTypes: {}, unmatchedToolUses: 0, versionsSeen: [] },
     };
   }
@@ -252,10 +254,10 @@ describe("assertProfileInvariants", () => {
     expect(() => assertProfileInvariants(profile)).toThrow(ProfileInvariantError);
   });
 
-  it("throws when schemaVersion is not 0.1", () => {
+  it("throws when schemaVersion is not 0.2", () => {
     const profile = validProfile();
     // @ts-expect-error deliberately invalid for the test
-    profile.schemaVersion = "0.2";
+    profile.schemaVersion = "0.1";
     expect(() => assertProfileInvariants(profile)).toThrow(ProfileInvariantError);
   });
 });

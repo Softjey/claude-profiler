@@ -8,7 +8,7 @@ import type { Profile } from "./profile.js";
 
 function minimalProfile(sessionId: string): Profile {
   return {
-    schemaVersion: "0.1",
+    schemaVersion: "0.2",
     generatedAt: "2026-01-01T00:00:00.000Z",
     generator: { name: "claude-profiler", version: "0.1.0" },
     session: {
@@ -42,6 +42,8 @@ function minimalProfile(sessionId: string): Profile {
     cost: null,
     context: { turns: [] },
     prompts: [],
+    hooks: null,
+    phases: null,
     diagnostics: { skippedLines: 0, unknownRecordTypes: {}, unmatchedToolUses: 0, versionsSeen: [] },
   };
 }
@@ -73,7 +75,7 @@ describe("writeProfileArtifact", () => {
 
     expect(written).toBe(outPath);
     const parsed = JSON.parse(await readFile(outPath, "utf8"));
-    expect(parsed.schemaVersion).toBe("0.1");
+    expect(parsed.schemaVersion).toBe("0.2");
     expect(parsed.session.sessionId).toBe("sess-1");
   });
 });
