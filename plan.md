@@ -390,7 +390,7 @@ this plan assumes its data model and FR numbering.
 
 ---
 
-### T18 — Model stages: waiting / thinking / generating
+### T18 — What the model produced: the output token split
 - **Depends on:** T11, T13, T17
 - **Goal:** Answer "how much of the Model bucket was the model thinking?" — a question the
   measured block grid cannot answer, because thinking is nearly always a request's *first*
@@ -429,6 +429,18 @@ this plan assumes its data model and FR numbering.
   landed the wrong way the screen swapped to an entirely different table with different row
   names. A number the reader can weigh beats a cliff they cannot see. The spread is now
   shown beside the rate, and the drill-down renders one table with one note line.
+- **Superseded — the whole time split was replaced by a token split.** Everything below
+  describes an estimate of *time*: a rate fitted per session, thinking priced from it,
+  waiting taken as the residual. It shipped, and then the obvious question landed — why
+  estimate time from tokens at all when `usage.output_tokens_details.thinking_tokens` is a
+  reported number sitting in every request. The drill-down now shows thinking against the
+  rest of output, in tokens, with no fit, no sample floor, no stability caveat and one
+  table for every session. `model-stages.ts` is deleted; `modelStages` is gone from the
+  artifact. Time stays where it was always measured rather than inferred: the headline bar,
+  and the per-block grid below the token split. Input is deliberately not on the bar — it
+  outweighs output ~200x (44.1M cache reads against 207.4k output on one real session), so
+  it is a number in the note. The record below is kept because it is why the token split
+  exists, and because every rejected alternative in it is still rejected.
 - **Amended again — the sample floor was the real knob.** Surveying all 777 local
   transcripts showed the half-spread is mostly a function of sample size, not of a session
   being erratic: median 31.2% at 8–15 requests (p90 1539.8%), 27.5% at 16–31, 21.0% at
@@ -436,15 +448,15 @@ this plan assumes its data model and FR numbering.
   disguise, and a badly calibrated one — its 25% line sat on the 20.8% median and refused
   43% of all fits. `MIN_SAMPLE` went 8 → 32, which is the honest version of what that gate
   was groping for. Cost: 215 of 777 sessions show the stages instead of 419.
-- **Acceptance criteria:**
-  - The three stages sum to `timeline.modelMs`, asserted before the artifact is written.
-  - A planted rate is recovered from synthetic data, and planted per-request overhead lands
-    in waiting.
-  - A suspect request contributes its whole span to waiting and does not move the rate.
-  - Too few requests or a non-positive slope return null rather than a number; an unstable
-    slope returns the split with its instability reported.
-  - The measured block grid stays in the artifact and on screen; nothing that estimates
-    overwrites something that measured.
+- **Acceptance criteria (as superseded):**
+  - The drill-down splits output into thinking and everything else, from reported tokens,
+    with no fitted quantity anywhere on screen.
+  - Input is reported as context-per-request in the note, never as a bar segment beside
+    output.
+  - A session with no reported output tokens says so rather than rendering an empty bar.
+  - The cursor moves within the token split; the measured grid below it stays a record.
+  - Nothing in `5e59610`'s stalled handling is removed: `ModelPhase.suspectMs`,
+    `withoutStalled`, the `x` lens and the Stalled row all keep working.
 - **Verify:** `pnpm verify`, plus `buildProfile` over local transcripts of both sizes.
 
 ---

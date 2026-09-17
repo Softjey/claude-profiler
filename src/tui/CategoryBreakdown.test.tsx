@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { ModelBreakdownTable, UnaccountedBreakdown, UserPromptList } from "./CategoryBreakdown.js";
 import type { MergedTimeSplit } from "../hooks/sidecar.js";
 import type { ModelBreakdown } from "../metrics/model-breakdown.js";
-import type { ModelStageSplit } from "../metrics/model-stages.js";
+import type { TokenStats } from "../metrics/tokens.js";
 import type { UserGap } from "../metrics/time-split.js";
 
 function makeBreakdown(overrides: Partial<ModelBreakdown> = {}): ModelBreakdown {
@@ -28,6 +28,19 @@ function makeBreakdown(overrides: Partial<ModelBreakdown> = {}): ModelBreakdown 
   };
 }
 
+function makeTokens(overrides: Partial<TokenStats["totals"]> = {}): TokenStats {
+  const totals = {
+    input: 100,
+    output: 10_000,
+    thinking: 2_000,
+    cacheRead: 900_000,
+    cacheCreate1h: 0,
+    cacheCreate5m: 0,
+    ...overrides,
+  };
+  return { byModel: { "claude-opus-5": totals }, totals };
+}
+
 function makeTimeline(overrides: Partial<MergedTimeSplit> = {}): MergedTimeSplit {
   return {
     modelMs: 3000,
@@ -46,7 +59,7 @@ function makeTimeline(overrides: Partial<MergedTimeSplit> = {}): MergedTimeSplit
 describe("ModelBreakdownTable", () => {
   it("shows the three stages of a request, with the leading slice named for what dominates it", () => {
     const { lastFrame } = render(
-      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), stages: null, selectedIndex: 0, active: true }),
+      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), tokens: makeTokens(), selectedIndex: 0, active: true }),
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("Reading context + 1st block");
@@ -62,14 +75,14 @@ describe("ModelBreakdownTable", () => {
 
   it("says how much of the leading slice began by thinking, since that row hides it", () => {
     const { lastFrame } = render(
-      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), stages: null, selectedIndex: 0, active: true }),
+      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), tokens: makeTokens(), selectedIndex: 0, active: true }),
     );
     expect(lastFrame() ?? "").toContain("3 of those began by thinking");
   });
 
   it("keeps a stage with no time as a visible zero rather than dropping the row", () => {
     const { lastFrame } = render(
-      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), stages: null, selectedIndex: 0, active: true }),
+      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), tokens: makeTokens(), selectedIndex: 0, active: true }),
     );
     // The fixture never thinks after its first block: that is a finding, not
     // a missing row.
@@ -78,24 +91,56 @@ describe("ModelBreakdownTable", () => {
 
   it("says how many requests the split actually rests on", () => {
     const { lastFrame } = render(
-      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), stages: null, selectedIndex: 0, active: true }),
+      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), tokens: makeTokens(), selectedIndex: 0, active: true }),
     );
     expect(lastFrame() ?? "").toContain("3 requests, 2 written as more than one block");
   });
 
-  it("marks the selected row", () => {
+  it("marks the selected row in the token split, which is where the cursor lives", () => {
     const { lastFrame } = render(
-      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), stages: null, selectedIndex: 1, active: true }),
+      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), tokens: makeTokens(), selectedIndex: 1, active: true }),
     );
     const lines = (lastFrame() ?? "").split("\n");
-    expect(lines.find((l) => l.includes("Thinking"))).toContain(">");
-    expect(lines.find((l) => l.includes("Generating"))).not.toContain(">");
+    expect(lines.find((l) => l.includes("Text + tools"))).toContain(">");
+    // The measured grid below is a record, not a menu, so it never takes the cursor.
+    expect(lines.find((l) => l.includes("Reading context"))).not.toContain(">");
+  });
+
+  it("splits output into thinking and everything else, from the reported tokens", () => {
+    const { lastFrame } = render(
+      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), tokens: makeTokens(), selectedIndex: 0, active: true }),
+    );
+    const frame = lastFrame() ?? "";
+    // 2k thinking of 10k output, and no fitted rate anywhere in sight.
+    expect(frame).toMatch(/Thinking\s+\S*\s*20\.0% 2\.0k tokens/);
+    expect(frame).toMatch(/Text \+ tools\s+\S*\s*80\.0% 8\.0k tokens/);
+    expect(frame).not.toContain("estimated");
+  });
+
+  it("reports the context read back per request rather than charting it", () => {
+    // Input outweighs output ~100x, so it belongs in the note, not on a bar.
+    const { lastFrame } = render(
+      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), tokens: makeTokens(), selectedIndex: 0, active: true }),
+    );
+    expect(lastFrame() ?? "").toContain("context read back per request");
+  });
+
+  it("says so plainly when the session reported no output tokens", () => {
+    const { lastFrame } = render(
+      createElement(ModelBreakdownTable, {
+        breakdown: makeBreakdown(),
+        tokens: makeTokens({ output: 0, thinking: 0 }),
+        selectedIndex: 0,
+        active: true,
+      }),
+    );
+    expect(lastFrame() ?? "").toContain("No token usage recorded");
   });
 
   it("calls out the time in the bucket that is not the model working", () => {
     const { lastFrame } = render(
       createElement(ModelBreakdownTable, {
-        stages: null,
+        tokens: makeTokens(),
         breakdown: makeBreakdown({
           suspectMs: 3000,
           suspect: [
@@ -118,7 +163,7 @@ describe("ModelBreakdownTable", () => {
   it("takes the stalled time out of the rows and out of their denominator", () => {
     const { lastFrame } = render(
       createElement(ModelBreakdownTable, {
-        stages: null,
+        tokens: makeTokens(),
         breakdown: makeBreakdown({
           totalMs: 4000,
           // 3s of the 3s reading row was one slept request; the 1s of
@@ -162,7 +207,7 @@ describe("ModelBreakdownTable", () => {
     });
     const off = render(
       createElement(ModelBreakdownTable, {
-        stages: null,
+        tokens: makeTokens(),
         breakdown: withStall,
         selectedIndex: 0,
         active: true,
@@ -176,7 +221,7 @@ describe("ModelBreakdownTable", () => {
     const clean = makeBreakdown();
     const lensed = render(
       createElement(ModelBreakdownTable, {
-        stages: null,
+        tokens: makeTokens(),
         breakdown: clean,
         selectedIndex: 0,
         active: true,
@@ -184,49 +229,15 @@ describe("ModelBreakdownTable", () => {
       }),
     );
     const plain = render(
-      createElement(ModelBreakdownTable, { stages: null, breakdown: clean, selectedIndex: 0, active: true }),
+      createElement(ModelBreakdownTable, { tokens: makeTokens(), breakdown: clean, selectedIndex: 0, active: true }),
     );
     expect(lensed.lastFrame()).toBe(plain.lastFrame());
-  });
-
-  it("subtracts the stalled time from the estimated waiting row, which is where it sits", () => {
-    // computeModelStages bills a suspect request's whole span to waiting, so
-    // the lens is one subtraction from one row (model-stages.ts).
-    const split: ModelStageSplit = {
-      stages: [
-        { stage: "waiting", ms: 3500, pctOfModel: 0.875 },
-        { stage: "thinking", ms: 100, pctOfModel: 0.025 },
-        { stage: "generating", ms: 400, pctOfModel: 0.1 },
-      ],
-      rate: { msPerToken: 2, tokensPerSec: 500, requests: 9, halfSpread: 0.03 },
-      clampedRequests: 0,
-      totalRequests: 10,
-    };
-    const breakdown = makeBreakdown({
-      suspectMs: 3000,
-      suspect: [{ reason: "stalled", ms: 3000, requests: 1, pctOfModel: 0.75, kinds: [] }],
-    });
-    const { lastFrame } = render(
-      createElement(ModelBreakdownTable, {
-        stages: split,
-        breakdown,
-        selectedIndex: 0,
-        active: true,
-        excludeStalled: true,
-      }),
-    );
-    const frame = lastFrame() ?? "";
-
-    // 500ms waiting, 100ms thinking, 400ms generating over a 1s working bucket.
-    expect(frame).toMatch(/Waiting for first token\s+\S*\s*50\.0% \(500ms\)/);
-    expect(frame).toMatch(/Thinking\s+\S*\s*10\.0% \(100ms\)/);
-    expect(frame).toMatch(/Generating\s+\S*\s*40\.0% \(400ms\)/);
   });
 
   it("says so plainly when there is no model time at all", () => {
     const { lastFrame } = render(
       createElement(ModelBreakdownTable, {
-        stages: null,
+        tokens: makeTokens(),
         breakdown: makeBreakdown({ totalMs: 0, phases: [] }),
         selectedIndex: 0,
         active: true,

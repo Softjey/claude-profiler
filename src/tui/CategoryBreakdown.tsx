@@ -9,7 +9,7 @@ import {
   type ModelStage,
   type ModelStageSlice,
 } from "../metrics/model-breakdown.js";
-import type { ModelStageSplit, Stage } from "../metrics/model-stages.js";
+import type { TokenStats } from "../metrics/tokens.js";
 import type { UnaccountedCause, UserGap } from "../metrics/time-split.js";
 import { formatCount, formatMs, formatPercent, truncate } from "./format.js";
 
@@ -43,28 +43,93 @@ const STAGE_COLORS: Record<ModelStage, string> = {
 
 const STAGE_LABEL_WIDTH = 34;
 
-const REQUEST_STAGE_LABELS: Record<Stage, string> = {
-  waiting: "Waiting for first token",
+type OutputKind = "thinking" | "rest";
+
+const OUTPUT_LABELS: Record<OutputKind, string> = {
   thinking: "Thinking",
-  generating: "Generating",
+  rest: "Text + tools",
 };
 
-const REQUEST_STAGE_COLORS: Record<Stage, string> = {
-  waiting: "blue",
+const OUTPUT_COLORS: Record<OutputKind, string> = {
   thinking: "magenta",
-  generating: "cyan",
+  rest: "cyan",
 };
 
-const REQUEST_STAGE_LABEL_WIDTH = 26;
+const OUTPUT_LABEL_WIDTH = 16;
+
+/**
+ * What the model produced, in tokens it actually reported.
+ *
+ * This replaces a fitted time split that priced thinking at a rate regressed
+ * from the session. `thinking_tokens` is already in every request's `usage`,
+ * so the same question — how much of this was thinking — is answered by
+ * arithmetic on measured numbers instead: no fit, no sample floor, no
+ * stability caveat, and the same table for every session.
+ *
+ * Only output is split. Input dwarfs it by two orders of magnitude on a real
+ * session — 44.1M cache-read tokens against 207.4k of output — so a bar
+ * carrying both is a bar of cache reads with the answer invisible inside it.
+ * Context size is a number in the note instead, where it can be read without
+ * crowding out the thing being shown. Time is not here at all: it is the
+ * headline bar's job, and tokens cannot speak to the part of it that was
+ * spent waiting.
+ */
+function TokenSplit({
+  tokens,
+  requests,
+  selectedIndex,
+  active,
+}: {
+  tokens: TokenStats;
+  requests: number;
+  selectedIndex: number;
+  active: boolean;
+}): React.JSX.Element {
+  const { output, thinking, input, cacheRead, cacheCreate1h, cacheCreate5m } = tokens.totals;
+
+  if (output === 0) {
+    return <Text dimColor>No token usage recorded in this session.</Text>;
+  }
+
+  const contextRead = input + cacheRead + cacheCreate1h + cacheCreate5m;
+  const rows: { kind: OutputKind; count: number }[] = [
+    { kind: "thinking", count: Math.min(thinking, output) },
+    { kind: "rest", count: Math.max(0, output - thinking) },
+  ];
+
+  return (
+    <Box flexDirection="column">
+      <Text dimColor>
+        measured · {requests} request{requests === 1 ? "" : "s"}
+        {requests > 0
+          ? `, ${formatCount(Math.round(contextRead / requests))} context read back per request on average`
+          : ""}
+      </Text>
+      {rows.map((row, i) => {
+        const selected = active && i === selectedIndex;
+        return (
+          <Box key={row.kind}>
+            <Box width={OUTPUT_LABEL_WIDTH} flexShrink={0}>
+              <Text bold={selected} wrap="truncate-end">
+                {selected ? ">" : " "} {OUTPUT_LABELS[row.kind]}
+              </Text>
+            </Box>
+            {bar(row.count / output, OUTPUT_COLORS[row.kind])}
+            <Text>
+              {" "}
+              {formatPercent(row.count / output)} {formatCount(row.count)} tokens
+            </Text>
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
 
 export interface ModelBreakdownTableProps {
   breakdown: ModelBreakdown;
-  /**
-   * The estimated waiting / thinking / generating reading, or null when the
-   * session could not support the fit. Null falls back to the measured block
-   * grid below, which explains less but never guesses (model-stages.ts).
-   */
-  stages: ModelStageSplit | null;
+  /** Token usage for the session, which the output split is read from. */
+  tokens: TokenStats;
   selectedIndex: number;
   /** See ToolTableProps.active: only highlight once the cursor is in this table. */
   active: boolean;
@@ -79,70 +144,13 @@ export interface ModelBreakdownTableProps {
 }
 
 /**
- * The stage reading: what the model was doing, at the cost of estimating it.
- * The header says so before the numbers rather than after, because a reader
- * who takes these for measurements is worse off than one who never saw them.
- */
-function RequestStages({
-  split,
-  totalMs,
-  stalledMs,
-  excludeStalled,
-  selectedIndex,
-  active,
-}: {
-  split: ModelStageSplit;
-  totalMs: number;
-  stalledMs: number;
-  excludeStalled: boolean;
-  selectedIndex: number;
-  active: boolean;
-}): React.JSX.Element {
-  // `computeModelStages` bills a suspect request's whole `totalMs` to waiting
-  // and prices none of its tokens (model-stages.ts), so removing stalled time
-  // here is one exact subtraction from one row — not a reallocation across
-  // three of them.
-  const denominatorMs = excludeStalled ? Math.max(0, totalMs - stalledMs) : totalMs;
-  const rows = split.stages.map((stage) => {
-    const ms = excludeStalled && stage.stage === "waiting" ? Math.max(0, stage.ms - stalledMs) : stage.ms;
-    return { ...stage, ms, pctOfModel: denominatorMs > 0 ? ms / denominatorMs : 0 };
-  });
-
-  return (
-    <Box flexDirection="column">
-      <Text dimColor>
-        estimated · {split.rate.tokensPerSec.toFixed(1)} tok/s over {split.rate.requests} request
-        {split.rate.requests === 1 ? "" : "s"}
-        {split.rate.halfSpread === null ? "" : `, ±${formatPercent(split.rate.halfSpread)} across halves`}
-      </Text>
-      {rows.map((stage, i) => {
-        const selected = active && i === selectedIndex;
-        return (
-          <Box key={stage.stage}>
-            <Box width={REQUEST_STAGE_LABEL_WIDTH} flexShrink={0}>
-              <Text bold={selected} wrap="truncate-end">
-                {selected ? ">" : " "} {REQUEST_STAGE_LABELS[stage.stage]}
-              </Text>
-            </Box>
-            {bar(stage.pctOfModel, REQUEST_STAGE_COLORS[stage.stage])}
-            <Text>
-              {" "}
-              {formatPercent(stage.pctOfModel)} ({formatMs(stage.ms)})
-            </Text>
-          </Box>
-        );
-      })}
-    </Box>
-  );
-}
-
-
-/**
- * The fallback: the Model bucket exactly as the transcript recorded it, block
- * kind by block kind. It only appears when no rate could be fitted at all, so
- * the screen never shows two answers to the same question at once — but it
- * still has to explain that its leading row is not pure generation, which is
- * why it carries prose the stage table does not need.
+ * The Model bucket exactly as the transcript recorded it, block kind by block
+ * kind. It answers a different question from the token split above — where
+ * the recorded time went, rather than what was produced — and it is where the
+ * stalled lens lands, since a slept machine costs time and no tokens at all.
+ *
+ * Its leading row is not pure generation, which no shorter label can carry,
+ * so it keeps its prose.
  */
 function MeasuredGrid({
   coverage,
@@ -219,7 +227,7 @@ function MeasuredGrid({
  */
 export function ModelBreakdownTable({
   breakdown,
-  stages: split,
+  tokens,
   selectedIndex,
   active,
   excludeStalled = false,
@@ -240,25 +248,22 @@ export function ModelBreakdownTable({
 
   return (
     <Box flexDirection="column">
-      {split !== null ? (
-        <RequestStages
-          split={split}
-          totalMs={totalMs}
-          stalledMs={suspectMs}
-          excludeStalled={lensed}
-          selectedIndex={selectedIndex}
-          active={active}
-        />
-      ) : (
+      <TokenSplit
+        tokens={tokens}
+        requests={coverage.totalRequests}
+        selectedIndex={selectedIndex}
+        active={active}
+      />
+      <Box marginTop={1}>
         <MeasuredGrid
           coverage={coverage}
           stages={stages}
           mix={mix}
           excludeStalled={lensed}
-          selectedIndex={selectedIndex}
-          active={active}
+          selectedIndex={-1}
+          active={false}
         />
-      )}
+      </Box>
       {/* Only while the stalled time is still in the rows. Once it has been
           taken out, this is an itemised account of something the screen is no
           longer showing — and the bar above already says how much was dropped

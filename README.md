@@ -100,36 +100,26 @@ Task          4       9m 12s      1m 58s    1
 
 ### Example: inside the Model bucket
 
-`⏎` on the Model row opens its own breakdown. It answers the same question twice: once as an
-estimate you can read at a glance, and once as the measurement underneath it.
+`⏎` on the Model row opens its own breakdown: what the model produced, then where the
+recorded time went.
 
 ```
-estimated · 106.1 tok/s over 183 requests, ±2.3% across halves
-> Waiting for first token ██████░░░░░░░░░░░░░░ 29.3% (13m17s)
-  Thinking                ███░░░░░░░░░░░░░░░░░ 13.1% (5m55s)
-  Generating              ████████████░░░░░░░░ 57.6% (26m06s)
+measured · 183 requests, 250.6k context read back per request on average
+> Thinking      ████░░░░░░░░░░░░░░░░ 18.2% 37.7k tokens
+  Text + tools  ████████████████░░░░ 81.8% 169.8k tokens
 ```
 
-One session-wide generation rate is fitted from the requests themselves — the slope of
-wall-clock against output tokens — and thinking is then priced from the thinking tokens the
-transcript already records. Waiting is the residual, so it absorbs whatever the rate got
-wrong. The rate is the only coefficient stable enough to use: fitting waiting directly,
-against context size or as a constant, produced coefficients that flipped sign between the
-two halves of the same session, while the slope moved 2–3%.
+Both numbers come straight from each request's `usage` — `thinking_tokens` is reported, not
+inferred — so this is the same table for every session, with no fit, no sample floor and no
+confidence caveat.
 
-The 32-request floor is not a guess either. Across 777 local transcripts the fit's
-half-spread falls monotonically with sample size — a median of 31.2% at 8–15 requests
-(p90 1539.8%), 27.5% at 16–31, 21.0% at 32–63, 14.0% at 64–127, 11.5% at 128–255. A short
-session does not have an erratic speed; it has too few points to find one.
+Only output is split. On a real session input outweighs it by two orders of magnitude
+(44.1M cache-read tokens against 207.4k of output), so a bar carrying both is a bar of cache
+reads with the answer invisible inside it. Context size is a number in the note instead.
 
-`±26.0% across halves` is that stability, measured on the session in front of you and
-reported rather than ruled on — refit the first and second halves separately and this is how
-far the rate moved. A small number means the session had one speed; a large one means it did
-not, and the split is correspondingly rough.
-
-When no rate can be fitted at all — fewer than 32 usable requests, or a slope saying more
-output took less time — the drill-down falls back to the time exactly as Claude Code recorded
-it, one transcript record per content block:
+Time is not in this table at all. Tokens cannot speak to the part of a session that was
+spent waiting — a slept laptop produces none — so the time question is answered below, and
+in the headline bar, by the clock rather than by arithmetic on tokens:
 
 ```
 measured from per-block record timestamps · 83 requests, 68 written as more than one block

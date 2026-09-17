@@ -5,13 +5,15 @@ import { registerTab } from "./shell.js";
 import { CATEGORY_KEYS, TimeSplitBar, type Category } from "./TimeSplitBar.js";
 import { ModelBreakdownTable, UnaccountedBreakdown, UserPromptList } from "./CategoryBreakdown.js";
 import { modelRequestsScreen } from "./ModelRequests.js";
-import { collapsePhases } from "../metrics/model-breakdown.js";
 import { ToolTable, SORT_KEYS, sortTools, type SortKey } from "./ToolTable.js";
 import { toolDetailScreen } from "./ToolDetail.js";
 import { promptDetailScreen } from "./PromptDetail.js";
 
 
 type Focus = "categories" | "detail";
+
+/** Thinking and everything else: the two rows of the Model tab's token split. */
+const OUTPUT_ROW_COUNT = 2;
 
 /**
  * The default screen (F2, D10, D11): the time split, the tool table, and the
@@ -73,13 +75,12 @@ export function OverviewScreen({ profile, nav }: ScreenProps): React.JSX.Element
       } else if (category === "tools") {
         nav.setSelection(rows.length === 0 ? 0 : (selectedIndex + delta + rows.length) % rows.length);
       } else if (category === "model") {
-        // The table shows the collapsed stages, not the raw phase grid, so
-        // the cursor has to count the same rows the screen does.
-        const stageCount =
-          profile.modelBreakdown.phases.length === 0
-            ? 0
-            : collapsePhases(profile.modelBreakdown.phases, profile.modelBreakdown.totalMs).length;
-        setModelSelection((s) => (stageCount === 0 ? 0 : (s + delta + stageCount) % stageCount));
+        // The cursor lives in the token split, which is the table this screen
+        // leads with: thinking and everything else. The measured grid below it
+        // is a record, not a menu — every one of its rows opens the same
+        // request list anyway.
+        const rowCount = profile.tokens.totals.output > 0 ? OUTPUT_ROW_COUNT : 0;
+        setModelSelection((s) => (rowCount === 0 ? 0 : (s + delta + rowCount) % rowCount));
       } else if (category === "you") {
         const gapCount = profile.timeline.userGaps.length;
         setYouSelection((s) => (gapCount === 0 ? 0 : (s + delta + gapCount) % gapCount));
@@ -149,7 +150,7 @@ export function OverviewScreen({ profile, nav }: ScreenProps): React.JSX.Element
       ) : category === "model" ? (
         <ModelBreakdownTable
             breakdown={profile.modelBreakdown}
-            stages={profile.modelStages}
+            tokens={profile.tokens}
             selectedIndex={modelSelection}
             active={inDetail}
             excludeStalled={excludeStalled}

@@ -23,7 +23,6 @@ export const PROFILE_JSON_SCHEMA = {
     "prompts",
     "hooks",
     "phases",
-    "modelStages",
     "diagnostics",
   ],
   properties: {
@@ -48,7 +47,6 @@ export const PROFILE_JSON_SCHEMA = {
     prompts: { type: "array", items: { $ref: "#/$defs/promptPoint" } },
     hooks: { oneOf: [{ $ref: "#/$defs/hookInsights" }, { type: "null" }] },
     phases: { oneOf: [{ $ref: "#/$defs/phaseSplit" }, { type: "null" }] },
-    modelStages: { oneOf: [{ $ref: "#/$defs/modelStageSplit" }, { type: "null" }] },
     diagnostics: {
       type: "object",
       required: ["skippedLines", "unknownRecordTypes", "unmatchedToolUses", "versionsSeen"],
@@ -239,41 +237,6 @@ export const PROFILE_JSON_SCHEMA = {
         pctOfModel: { type: "number", minimum: 0 },
         slices: { type: "integer", minimum: 0 },
         suspectMs: { type: "number", minimum: 0 },
-      },
-    },
-    modelStageSplit: {
-      type: "object",
-      required: [
-        "stages",
-        "rate",
-        "clampedRequests",
-        "totalRequests",
-      ],
-      properties: {
-        stages: {
-          type: "array",
-          items: {
-            type: "object",
-            required: ["stage", "ms", "pctOfModel"],
-            properties: {
-              stage: { enum: ["waiting", "thinking", "generating"] },
-              ms: { type: "number", minimum: 0 },
-              pctOfModel: { type: "number", minimum: 0 },
-            },
-          },
-        },
-        rate: {
-          type: "object",
-          required: ["msPerToken", "tokensPerSec", "requests", "halfSpread"],
-          properties: {
-            msPerToken: { type: "number", exclusiveMinimum: 0 },
-            tokensPerSec: { type: "number", exclusiveMinimum: 0 },
-            requests: { type: "integer", minimum: 0 },
-            halfSpread: { type: ["number", "null"], minimum: 0 },
-          },
-        },
-        clampedRequests: { type: "integer", minimum: 0 },
-        totalRequests: { type: "integer", minimum: 0 },
       },
     },
     modelRequest: {
