@@ -116,7 +116,12 @@ export function OverviewScreen({ profile, nav }: ScreenProps): React.JSX.Element
       {category === "tools" ? (
         <ToolTable tools={profile.tools} selectedIndex={selectedIndex} sortKey={sortKey} filter={filter} active={inDetail} />
       ) : category === "model" ? (
-        <ModelBreakdownTable breakdown={profile.modelBreakdown} selectedIndex={modelSelection} active={inDetail} />
+        <ModelBreakdownTable
+            breakdown={profile.modelBreakdown}
+            stages={profile.modelStages}
+            selectedIndex={modelSelection}
+            active={inDetail}
+          />
       ) : category === "you" ? (
         <UserPromptList userGaps={profile.timeline.userGaps} selectedIndex={youSelection} active={inDetail} />
       ) : (

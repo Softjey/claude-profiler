@@ -4,6 +4,7 @@ import { computeSubagentStats, type SubagentStat } from "../metrics/subagent-sta
 import { computeContextSeries, type ContextSeries } from "../metrics/context.js";
 import { computeCostStats, type CostStats } from "../metrics/cost.js";
 import { computeModelBreakdown, type ModelBreakdown } from "../metrics/model-breakdown.js";
+import { computeModelStages, type ModelStageSplit } from "../metrics/model-stages.js";
 import { computePrompts, type PromptPoint } from "../metrics/prompts.js";
 import { computeTimeSplit } from "../metrics/time-split.js";
 import { computeHookInsights, type HookInsights } from "../metrics/hook-insights.js";
@@ -68,6 +69,13 @@ export interface Profile {
    * replacing it so the derived four-bucket split stays inspectable.
    */
   phases: PhaseSplit | null;
+  /**
+   * `modelBreakdown` read as waiting / thinking / generating, or null when
+   * the session cannot support the fit that requires (model-stages.ts). Kept
+   * beside the measured grid rather than replacing it: this one estimates,
+   * and anything that estimates has to stay separable from what does not.
+   */
+  modelStages: ModelStageSplit | null;
   diagnostics: ProfileDiagnostics;
 }
 
@@ -202,6 +210,24 @@ function assertModelBreakdownInvariant(
   }
 }
 
+/** Milliseconds of float drift tolerated before the stage split is called broken. */
+const STAGE_SUM_TOLERANCE_MS = 1;
+
+/**
+ * The stage split is a second reading of the same bucket, so it has to land
+ * on the same total. It is built from per-request subtraction in floating
+ * point, unlike the phase grid's integer interval arithmetic, so it is
+ * checked against a tolerance rather than for exact equality.
+ */
+function assertModelStagesInvariant(stages: ModelStageSplit, modelMs: number, path: string): void {
+  const sum = stages.stages.reduce((total, stage) => total + stage.ms, 0);
+  if (Math.abs(sum - modelMs) > STAGE_SUM_TOLERANCE_MS) {
+    throw new ProfileInvariantError(
+      `${path}: stages sum to ${sum}ms but the Model bucket is ${modelMs}ms`,
+    );
+  }
+}
+
 /**
  * Runtime-asserted before every write (SPEC step 3): a malformed Profile
  * must throw here rather than reach disk silently.
@@ -220,6 +246,9 @@ export function assertProfileInvariants(profile: Profile): void {
       subagent.timeline.modelMs,
       `subagents[${subagent.agentId}].modelBreakdown`,
     );
+  }
+  if (profile.modelStages !== null && profile.modelStages !== undefined) {
+    assertModelStagesInvariant(profile.modelStages, profile.timeline.modelMs, "modelStages");
   }
   // The phase split carries a fifth bucket, so it has its own sum check: idle
   // is only ever moved between buckets, never invented.
@@ -260,6 +289,7 @@ export async function buildProfile(options: BuildProfileOptions): Promise<Profil
   const session = buildSessionMeta(sessionId, transcriptPath, records, events);
 
   const hooks = computeHookInsights(merged.trace);
+  const modelStages = computeModelStages(modelBreakdown);
   // The phase split needs an origin on the session clock to clip idle windows
   // against. `session.startedAt` and `derivedTimeline.spanMs` come from
   // slightly different record sets, but the bucket totals are bounded by the
@@ -286,6 +316,7 @@ export async function buildProfile(options: BuildProfileOptions): Promise<Profil
     prompts,
     hooks,
     phases,
+    modelStages,
     diagnostics: {
       skippedLines: parsed.diagnostics.skippedLines,
       unknownRecordTypes: parsed.diagnostics.unknownRecordTypes,

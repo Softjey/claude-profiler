@@ -390,6 +390,51 @@ this plan assumes its data model and FR numbering.
 
 ---
 
+### T18 — Model stages: waiting / thinking / generating
+- **Depends on:** T11, T13, T17
+- **Goal:** Answer "how much of the Model bucket was the model thinking?" — a question the
+  measured block grid cannot answer, because thinking is nearly always a request's *first*
+  block and its time is welded to the API queue and reading the prompt back in.
+- **Added after T17**, from a reading of the collapsed breakdown that showed `Thinking 0.0%`
+  on a session with 37.6k thinking tokens across 92 of 183 requests.
+- **Files:** `src/metrics/model-stages.ts` (new), `src/metrics/model-breakdown.ts`,
+  `src/tui/CategoryBreakdown.tsx`, `src/tui/Overview.tsx`, `src/artifact/profile.ts`,
+  `src/artifact/schema.ts`, `README.md`
+- **Steps:**
+  1. Fit one session-wide generation rate: least-squares slope of `totalMs` against
+     `outputTokens`, over non-suspect requests.
+  2. Price thinking at `thinkingTokens × rate`, take waiting as the residual, leave the rest
+     as generating. Every row is an estimate and the header says so.
+  3. Gate the fit: at least 8 usable requests, a positive slope, and a slope that moves less
+     than 25% between the session's own halves. Failing any of these returns null and the
+     TUI falls back to the measured grid.
+  4. Carry the split in the artifact as `modelStages`, beside `modelBreakdown` rather than
+     replacing it, with a runtime invariant that the three stages sum to `modelMs`.
+- **Rejected — exact waiting via `MessageDisplay`:** the hook records `firstFlushAt`, which
+  is the first visible token and so the true prefill boundary; `message.id` in the
+  transcript joins to its `message_id`. Measured cost: **~21ms of process startup per
+  flush** (`node dist/hooks/hook-script.js`, 40 invocations, 0.846s wall; a bare `node -e 0`
+  is ~19ms of that). It fires per streaming flush, so a session producing 200k output tokens
+  spawns thousands of processes on every turn the person runs — to sharpen one row of one
+  table, and only on sessions recorded with it. Declined; waiting stays a residual.
+- **Rejected — predicting waiting directly:** fitting `totalMs = a + b·contextTokens +
+  c·outputTokens` gives a stable `c` (104.8 / 107.3 tok/s across one session's halves) but
+  `a` and `b` that flip sign between those same halves (+5.62s / −8.13s, −13.8 / +38.0
+  ms per 1k tokens). Only the token slope holds still, which is why waiting is a residual
+  rather than a prediction.
+- **Acceptance criteria:**
+  - The three stages sum to `timeline.modelMs`, asserted before the artifact is written.
+  - A planted rate is recovered from synthetic data, and planted per-request overhead lands
+    in waiting.
+  - A suspect request contributes its whole span to waiting and does not move the rate.
+  - Too few requests, a non-positive slope, or an unstable slope each return null rather
+    than a number.
+  - The measured block grid stays in the artifact and on screen; nothing that estimates
+    overwrites something that measured.
+- **Verify:** `pnpm verify`, plus `buildProfile` over local transcripts of both sizes.
+
+---
+
 ---
 
 ## Execution: waves and parallelism

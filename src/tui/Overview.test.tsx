@@ -106,6 +106,7 @@ function makeProfile(overrides: Partial<Profile> = {}): Profile {
     prompts: [],
     hooks: null,
     phases: null,
+    modelStages: null,
     diagnostics: { skippedLines: 0, unknownRecordTypes: {}, unmatchedToolUses: 0, versionsSeen: [] },
     ...overrides,
   };

@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import type { MergedTimeSplit } from "../hooks/sidecar.js";
 import { collapsePhases, leadingMix, type ModelBreakdown, type ModelStage } from "../metrics/model-breakdown.js";
+import type { ModelStageSplit, Stage } from "../metrics/model-stages.js";
 import type { UserGap } from "../metrics/time-split.js";
 import { formatCount, formatMs, formatPercent, truncate } from "./format.js";
 
@@ -34,11 +35,77 @@ const STAGE_COLORS: Record<ModelStage, string> = {
 
 const STAGE_LABEL_WIDTH = 34;
 
+const REQUEST_STAGE_LABELS: Record<Stage, string> = {
+  waiting: "Waiting for the model",
+  thinking: "Thinking",
+  generating: "Generating",
+};
+
+const REQUEST_STAGE_COLORS: Record<Stage, string> = {
+  waiting: "blue",
+  thinking: "magenta",
+  generating: "cyan",
+};
+
+const REQUEST_STAGE_LABEL_WIDTH = 24;
+
 export interface ModelBreakdownTableProps {
   breakdown: ModelBreakdown;
+  /**
+   * The estimated waiting / thinking / generating reading, or null when the
+   * session could not support the fit. Null falls back to the measured block
+   * grid below, which explains less but never guesses (model-stages.ts).
+   */
+  stages: ModelStageSplit | null;
   selectedIndex: number;
   /** See ToolTableProps.active: only highlight once the cursor is in this table. */
   active: boolean;
+}
+
+/**
+ * The stage reading: what the model was doing, at the cost of estimating it.
+ * The header says so before the numbers rather than after, because a reader
+ * who takes these for measurements is worse off than one who never saw them.
+ */
+function RequestStages({
+  split,
+  selectedIndex,
+  active,
+}: {
+  split: ModelStageSplit;
+  selectedIndex: number;
+  active: boolean;
+}): React.JSX.Element {
+  return (
+    <Box flexDirection="column">
+      <Text dimColor>
+        estimated · generation priced at {split.rate.tokensPerSec.toFixed(1)} tok/s ({split.rate.requests}{" "}
+        requests, ±{formatPercent(split.rate.halfSpread)} across halves)
+      </Text>
+      {split.stages.map((stage, i) => {
+        const selected = active && i === selectedIndex;
+        return (
+          <Box key={stage.stage}>
+            <Box width={REQUEST_STAGE_LABEL_WIDTH} flexShrink={0}>
+              <Text bold={selected} wrap="truncate-end">
+                {selected ? ">" : " "} {REQUEST_STAGE_LABELS[stage.stage]}
+              </Text>
+            </Box>
+            {bar(stage.pctOfModel, REQUEST_STAGE_COLORS[stage.stage])}
+            <Text>
+              {" "}
+              {formatPercent(stage.pctOfModel)} ({formatMs(stage.ms)})
+            </Text>
+          </Box>
+        );
+      })}
+      <Text dimColor>{"  "}thinking is priced from measured thinking tokens — the firmest row here</Text>
+      <Text dimColor>
+        {"  "}waiting is the leftover, so it absorbs whatever the rate got wrong
+        {split.clampedRequests > 0 ? ` · ${split.clampedRequests}/${split.totalRequests} clamped` : ""}
+      </Text>
+    </Box>
+  );
 }
 
 /**
@@ -58,6 +125,7 @@ export interface ModelBreakdownTableProps {
  */
 export function ModelBreakdownTable({
   breakdown,
+  stages: split,
   selectedIndex,
   active,
 }: ModelBreakdownTableProps): React.JSX.Element {
@@ -72,12 +140,17 @@ export function ModelBreakdownTable({
 
   return (
     <Box flexDirection="column">
+      {split !== null ? (
+        <Box marginBottom={1}>
+          <RequestStages split={split} selectedIndex={selectedIndex} active={active} />
+        </Box>
+      ) : null}
       <Text dimColor>
         measured from per-block record timestamps · {coverage.totalRequests} request
         {coverage.totalRequests === 1 ? "" : "s"}, {coverage.requestsWithBlockSplit} written as more than one block
       </Text>
       {stages.map((stage, i) => {
-        const selected = active && i === selectedIndex;
+        const selected = active && split === null && i === selectedIndex;
         return (
           <Box key={stage.stage} flexDirection="column">
             <Box>

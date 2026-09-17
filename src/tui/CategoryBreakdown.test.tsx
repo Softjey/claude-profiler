@@ -44,7 +44,7 @@ function makeTimeline(overrides: Partial<MergedTimeSplit> = {}): MergedTimeSplit
 describe("ModelBreakdownTable", () => {
   it("shows the three stages of a request, with the leading slice named for what dominates it", () => {
     const { lastFrame } = render(
-      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), selectedIndex: 0, active: true }),
+      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), stages: null, selectedIndex: 0, active: true }),
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("Reading context + 1st block");
@@ -60,14 +60,14 @@ describe("ModelBreakdownTable", () => {
 
   it("says how much of the leading slice began by thinking, since that row hides it", () => {
     const { lastFrame } = render(
-      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), selectedIndex: 0, active: true }),
+      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), stages: null, selectedIndex: 0, active: true }),
     );
     expect(lastFrame() ?? "").toContain("3 of those began by thinking");
   });
 
   it("keeps a stage with no time as a visible zero rather than dropping the row", () => {
     const { lastFrame } = render(
-      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), selectedIndex: 0, active: true }),
+      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), stages: null, selectedIndex: 0, active: true }),
     );
     // The fixture never thinks after its first block: that is a finding, not
     // a missing row.
@@ -76,14 +76,14 @@ describe("ModelBreakdownTable", () => {
 
   it("says how many requests the split actually rests on", () => {
     const { lastFrame } = render(
-      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), selectedIndex: 0, active: true }),
+      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), stages: null, selectedIndex: 0, active: true }),
     );
     expect(lastFrame() ?? "").toContain("3 requests, 2 written as more than one block");
   });
 
   it("marks the selected row", () => {
     const { lastFrame } = render(
-      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), selectedIndex: 1, active: true }),
+      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), stages: null, selectedIndex: 1, active: true }),
     );
     const lines = (lastFrame() ?? "").split("\n");
     expect(lines.find((l) => l.includes("Thinking"))).toContain(">");
@@ -93,6 +93,7 @@ describe("ModelBreakdownTable", () => {
   it("calls out the time in the bucket that is not the model working", () => {
     const { lastFrame } = render(
       createElement(ModelBreakdownTable, {
+        stages: null,
         breakdown: makeBreakdown({
           suspectMs: 3000,
           suspect: [
@@ -115,6 +116,7 @@ describe("ModelBreakdownTable", () => {
   it("says so plainly when there is no model time at all", () => {
     const { lastFrame } = render(
       createElement(ModelBreakdownTable, {
+        stages: null,
         breakdown: makeBreakdown({ totalMs: 0, phases: [] }),
         selectedIndex: 0,
         active: true,

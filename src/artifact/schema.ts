@@ -23,6 +23,7 @@ export const PROFILE_JSON_SCHEMA = {
     "prompts",
     "hooks",
     "phases",
+    "modelStages",
     "diagnostics",
   ],
   properties: {
@@ -47,6 +48,7 @@ export const PROFILE_JSON_SCHEMA = {
     prompts: { type: "array", items: { $ref: "#/$defs/promptPoint" } },
     hooks: { oneOf: [{ $ref: "#/$defs/hookInsights" }, { type: "null" }] },
     phases: { oneOf: [{ $ref: "#/$defs/phaseSplit" }, { type: "null" }] },
+    modelStages: { oneOf: [{ $ref: "#/$defs/modelStageSplit" }, { type: "null" }] },
     diagnostics: {
       type: "object",
       required: ["skippedLines", "unknownRecordTypes", "unmatchedToolUses", "versionsSeen"],
@@ -173,6 +175,7 @@ export const PROFILE_JSON_SCHEMA = {
         deniedCalls: { type: "integer", minimum: 0 },
         responseBytes: { type: ["number", "null"] },
         bashGroups: { type: "array", items: { $ref: "#/$defs/bashGroupStat" } },
+        bashCommands: { type: "array", items: { $ref: "#/$defs/bashGroupStat" } },
       },
     },
     bashGroupStat: {
@@ -224,11 +227,47 @@ export const PROFILE_JSON_SCHEMA = {
         slices: { type: "integer", minimum: 0 },
       },
     },
+    modelStageSplit: {
+      type: "object",
+      required: [
+        "stages",
+        "rate",
+        "clampedRequests",
+        "totalRequests",
+      ],
+      properties: {
+        stages: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["stage", "ms", "pctOfModel"],
+            properties: {
+              stage: { enum: ["waiting", "thinking", "generating"] },
+              ms: { type: "number", minimum: 0 },
+              pctOfModel: { type: "number", minimum: 0 },
+            },
+          },
+        },
+        rate: {
+          type: "object",
+          required: ["msPerToken", "tokensPerSec", "requests", "halfSpread"],
+          properties: {
+            msPerToken: { type: "number", exclusiveMinimum: 0 },
+            tokensPerSec: { type: "number", exclusiveMinimum: 0 },
+            requests: { type: "integer", minimum: 0 },
+            halfSpread: { type: "number", minimum: 0 },
+          },
+        },
+        clampedRequests: { type: "integer", minimum: 0 },
+        totalRequests: { type: "integer", minimum: 0 },
+      },
+    },
     modelRequest: {
       type: "object",
       required: [
         "key",
         "requestId",
+        "startMs",
         "index",
         "turnIndex",
         "at",
@@ -248,6 +287,7 @@ export const PROFILE_JSON_SCHEMA = {
       properties: {
         key: { type: "string" },
         requestId: { type: ["string", "null"] },
+        startMs: { type: ["number", "null"] },
         index: { type: "integer", minimum: 0 },
         turnIndex: { type: "integer", minimum: 0 },
         at: { type: ["string", "null"] },

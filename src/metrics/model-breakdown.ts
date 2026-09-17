@@ -59,6 +59,12 @@ export interface ModelRequest {
   index: number;
   turnIndex: number;
   at: string | null;
+  /**
+   * When control actually passed to the model: the start of its leading
+   * slice, which is the previous timestamped point (a prompt landing, a tool
+   * finishing). `at` is the *end* of the first block, so it cannot serve here.
+   */
+  startMs: number | null;
   model: string | undefined;
   effort: string | undefined;
   stopReason: string | null;
@@ -345,6 +351,7 @@ export function computeModelBreakdown(events: ModelEvent[], toolUses: ToolUseEve
       index: index++,
       turnIndex: firstEvent.turnIndex,
       at: firstEvent.at,
+      startMs: first.segment.startMs,
       model: firstEvent.model,
       effort: firstEvent.effort,
       stopReason: last?.segment.event.stopReason ?? null,
