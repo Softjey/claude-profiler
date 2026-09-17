@@ -64,14 +64,14 @@ this plan assumes its data model and FR numbering.
 - **Goal:** A runnable TypeScript CLI skeleton that `npx` can execute.
 - **Files:** `package.json`, `tsconfig.json`, `vitest.config.ts`, `src/cli/index.ts`, `.gitignore`, `src/cli/bin.ts`
 - **Steps:**
-  1. Init npm package `claude-profiler`, `"type": "module"`, `bin` → `dist/cli/bin.js`, Node 20+ engine.
+  1. Init pnpm package `claude-profiler`, `"type": "module"`, `bin` → `dist/cli/bin.js`, Node 20+ engine.
   2. TypeScript strict mode, ESM, build to `dist/`.
   3. Add Ink, Vitest, a small arg parser (`citty` or hand-rolled — no heavyweight framework).
   4. `src/cli/index.ts` parses: positional `<sessionId>`, flags `--json`, `--out <path>`, `--version`, `--help`.
 - **Acceptance criteria:**
-  - `npm run build && node dist/cli/bin.js --help` prints usage and exits 0.
+  - `pnpm build && node dist/cli/bin.js --help` prints usage and exits 0.
   - `--version` prints the package version.
-- **Verify:** `npm run build && node dist/cli/bin.js --help`
+- **Verify:** `pnpm build && node dist/cli/bin.js --help`
 
 ### T2 — Lenient JSONL parser
 - **Depends on:** T1
@@ -88,7 +88,7 @@ this plan assumes its data model and FR numbering.
   - A file with a truncated final line parses and reports `skippedLines: 1`.
   - A record with an invented `type` lands in `unknownRecordTypes` and does not throw.
   - Parsing the 95 MB transcript stays under 500 MB peak RSS.
-- **Verify:** `npx vitest run src/parse` plus
+- **Verify:** `pnpm vitest run src/parse` plus
   `node --expose-gc -e "..."` memory check against the largest local transcript.
 
 ### T3 — Corpus smoke test
@@ -100,10 +100,12 @@ this plan assumes its data model and FR numbering.
      message when the directory is absent, so CI on a clean machine still passes.
   2. Parse each; assert no throw; collect the set of CC versions and record types seen.
   3. Print a summary table: files, total records, skipped lines, distinct versions.
+  4. Leave a marked extension point for the time-split invariant T5 adds here later,
+     so that edit is an append rather than a rewrite.
 - **Acceptance criteria:**
   - All local transcripts parse with zero thrown errors.
   - The summary reports at least the versions `2.1.219`–`2.1.273`.
-- **Verify:** `npx vitest run test/corpus.test.ts`
+- **Verify:** `pnpm vitest run test/corpus.test.ts`
 
 ### T4 — Event model
 - **Depends on:** T2
@@ -121,7 +123,7 @@ this plan assumes its data model and FR numbering.
   - Two `tool_use` blocks in one assistant message produce two events sharing a start time.
   - An interrupted transcript (tool_use with no result) yields `durationMs: null`, not a crash.
   - `turnIndex` is monotonic and starts at 0.
-- **Verify:** `npx vitest run src/model`
+- **Verify:** `pnpm vitest run src/model`
 
 ### T5 — Time split with interval merging
 - **Depends on:** T4
@@ -141,7 +143,7 @@ this plan assumes its data model and FR numbering.
     transcript in the corpus test.
   - Three parallel 10s tool calls in one message contribute 10s to `toolsMs`, not 30s.
   - `unaccountedMs >= 0` always.
-- **Verify:** `npx vitest run src/metrics/time-split.test.ts` and re-run T3's corpus test with the invariant added
+- **Verify:** `pnpm vitest run src/metrics/time-split.test.ts` and re-run T3's corpus test with the invariant added
 
 ### T6 — Tool statistics and outlier detection
 - **Depends on:** T4
@@ -158,7 +160,7 @@ this plan assumes its data model and FR numbering.
   - On session `54fd3ef0`, `mcp__claude-in-chrome__computer` reports `calls: 20`,
     `medianMs ≈ 749`, `maxMs ≈ 1_064_111`, `outlierCount: 1`.
   - `typicalMs` for that tool is under 30s while `totalMs` is ~18min — the discrepancy the table exists to show.
-- **Verify:** `npx vitest run src/metrics/tool-stats.test.ts`
+- **Verify:** `pnpm vitest run src/metrics/tool-stats.test.ts`
 
 ### T7 — Token, cost and context metrics
 - **Depends on:** T4
@@ -175,7 +177,7 @@ this plan assumes its data model and FR numbering.
 - **Acceptance criteria:**
   - On session `54fd3ef0`: total `cacheRead` is 139,992,949 and `cost.totalCostUSD` ≈ 85.19.
   - On any session before `2.1.260`, `cost` is `null` and nothing throws.
-- **Verify:** `npx vitest run src/metrics`
+- **Verify:** `pnpm vitest run src/metrics`
 
 ### T8 — Subagent resolution
 - **Depends on:** T4, T6
@@ -192,7 +194,7 @@ this plan assumes its data model and FR numbering.
 - **Acceptance criteria:**
   - A session with subagents shows a `Task` row whose nested stats sum to that agent's own span.
   - An ambiguous or unmatched `Task` degrades to a plain row with no subagent data.
-- **Verify:** `npx vitest run src/metrics/subagent-stats.test.ts`, then run against a local session containing `Task` calls
+- **Verify:** `pnpm vitest run src/metrics/subagent-stats.test.ts`, then run against a local session containing `Task` calls
 
 ### T9 — Verify what hooks actually measure
 - **Depends on:** T1
@@ -232,7 +234,7 @@ this plan assumes its data model and FR numbering.
   - Install then uninstall leaves `settings.json` byte-identical to the original.
   - Install refuses to proceed without confirmation.
   - A session with no sidecar profiles exactly as before, with `precision: "derived"`.
-- **Verify:** `npx vitest run src/hooks`, then install → run a short real session → profile it → confirm `precision: "exact"`
+- **Verify:** `pnpm vitest run src/hooks`, then install → run a short real session → profile it → confirm `precision: "exact"`
 
 ### T11 — Profile assembly, schema and `--json`
 - **Depends on:** T5, T6, T7, T8
@@ -267,19 +269,25 @@ this plan assumes its data model and FR numbering.
 ### T13 — TUI: Overview tab
 - **Depends on:** T11
 - **Goal:** The default screen — the time split and the tool table (F2, D10, D11).
-- **Files:** `src/tui/App.tsx`, `src/tui/Overview.tsx`, `src/tui/TimeSplitBar.tsx`, `src/tui/ToolTable.tsx`, `src/tui/format.ts`
+- **Files:** `src/tui/App.tsx`, `src/tui/shell.ts`, `src/tui/Overview.tsx`, `src/tui/TimeSplitBar.tsx`, `src/tui/ToolTable.tsx`, `src/tui/format.ts`
 - **Steps:**
-  1. Header: session id, project, date, span, cost (or `—`), model(s), turn count.
-  2. Time split as labelled bars with percentages, and the standing caveat line:
+  1. **Build the shell first** (`src/tui/shell.ts` + `App.tsx`), before Overview itself:
+     a `Tab` registry (`{ id, title, render }`) that later tabs append to, and a navigation
+     stack (`push`/`pop`, preserving each frame's selection) that later screens push onto.
+     T14 and T15 add files and register; neither edits `App.tsx`. This keeps the last
+     parallel wave conflict-free.
+  2. Header: session id, project, date, span, cost (or `—`), model(s), turn count.
+  3. Time split as labelled bars with percentages, and the standing caveat line:
      approvals are inside the tools bucket, with a pointer to `install-hooks`. Omit the
      caveat when `precision === "exact"`.
-  3. Tool table sorted by `totalMs` desc: name, totalMs, %, calls, median, outlier count.
+  4. Tool table sorted by `totalMs` desc: name, totalMs, %, calls, median, outlier count.
      Render a marker on any row whose `totalMs` and `typicalMs` diverge by more than 3×.
-  4. Keys: `↑↓` select, `⏎` drill in, `⇥` next tab, `s` cycle sort, `/` filter, `q` quit.
+  5. Keys: `↑↓` select, `⏎` drill in, `⇥` next tab, `s` cycle sort, `/` filter, `q` quit.
 - **Acceptance criteria:**
   - The four split values shown as percentages sum to 100%.
   - On session `54fd3ef0`, the `computer` row is visibly marked as outlier-dominated.
   - No label anywhere calls a derived duration exact.
+  - `shell.ts` exposes tab registration and the nav stack, so T14/T15 need no `App.tsx` edit.
 - **Verify:** `node dist/cli/bin.js 54fd3ef0-3d6f-48d5-8e4b-41bf3a8d13d8` and navigate
 
 ### T14 — TUI: drill-down and subagents
@@ -291,7 +299,8 @@ this plan assumes its data model and FR numbering.
      start time, duration, truncated input.
   2. Call detail: full input (scrollable), duration, turn, outlier reason when flagged.
   3. `Task` row → subagent view with its own time split and tool table; cost shows `—`.
-  4. `Esc` pops one level; maintain a navigation stack so depth is unbounded.
+  4. `Esc` pops one level, using T13's nav stack. Register screens through `shell.ts`;
+     **do not edit `App.tsx`** — T15 is running in parallel on the same file.
 - **Acceptance criteria:**
   - Drilling into `computer` puts the 1064s call first and marks it an outlier.
   - `Esc` from any depth returns to the exact previous screen and selection.
@@ -306,7 +315,9 @@ this plan assumes its data model and FR numbering.
      turn, tool count, a short prompt preview. `⏎` expands the turn's events.
   2. Context: `cacheReadTokens` per turn as a sparkline, with min/max/final annotated, plus
      output and thinking tokens per turn.
-  3. `⇥` cycles Overview → Timeline → Context → Overview; the header shows `[n/3]`.
+  3. Register both tabs through T13's `shell.ts` registry so `⇥` cycles
+     Overview → Timeline → Context → Overview and the header shows `[n/3]`.
+     **Do not edit `App.tsx`** — T14 is running in parallel on the same file.
 - **Acceptance criteria:**
   - Timeline turn count equals `session.turnCount`.
   - The Context sparkline renders for a session with 900+ turns without wrapping or tearing.
@@ -325,13 +336,59 @@ this plan assumes its data model and FR numbering.
      and a clean exit); where cost is shown it is API-rate, notional on a subscription.
   3. Note that transcripts contain source code and prompts and that everything stays local.
   4. MIT license. CI runs build + unit tests (corpus test skips without `~/.claude`).
-  5. `files` in package.json limited to `dist/` and `README.md`; verify with `npm pack --dry-run`.
+  5. `files` in package.json limited to `dist/` and `README.md`; verify with `pnpm pack --dry-run`.
 - **Acceptance criteria:**
-  - `npm pack --dry-run` lists no source, no tests, no fixtures.
+  - `pnpm pack --dry-run` lists no source, no tests, no fixtures.
   - A reader who only reads the README cannot come away thinking tool durations are exact.
-- **Verify:** `npm pack --dry-run && npx ./claude-profiler-0.1.0.tgz --help`
+- **Verify:** `pnpm pack && npx ./claude-profiler-0.1.0.tgz --help`
 
 ---
+
+---
+
+## Execution: waves and parallelism
+
+Sequentially the 16 tasks are a long chain. The dependency graph is much wider than that:
+the critical path is **T2 → T4 → T6 → T8 → T11 → T13 → T14**, six steps after the parser.
+Everything else fits beside it.
+
+Each task runs in its own **git worktree** on its own branch, so parallel agents never share
+a git index. pnpm's content-addressable store is shared across worktrees, so `pnpm install`
+in a fresh worktree is near-instant and costs no extra disk. Merge a wave before opening the
+next one.
+
+| Wave | Parallel tasks | Why they don't collide |
+|---|---|---|
+| **1** | T3, T4, T12 — plus T9 | `test/corpus.test.ts` · `src/model/` · `src/cli/resolve-session.ts` + `src/tui/SessionPicker.tsx` · `docs/` |
+| **2** | T5, T6, T7 | `time-split.ts`+`interval.ts` · `tool-stats.ts` · `tokens.ts`+`cost.ts`+`context.ts` |
+| **3** | T8, T10 | `src/model/resolve-subagents.ts`+`src/metrics/subagent-stats.ts` · `src/hooks/` |
+| **4** | T11 alone | integrates every metric; nothing else may be in flight |
+| **5** | T13 alone | builds the TUI shell that wave 6 registers into |
+| **6** | T14, T15, T16 | detail screens · timeline+context · README/CI — none touch `App.tsx` |
+
+### Rules for a parallel wave
+
+1. **One task, one worktree, one branch.** Merge to `master` only after `/verify-task <id>`
+   writes a PASS block to `progress.md`.
+2. **Never widen a task's file list.** The waves above are safe only because the file sets are
+   disjoint. A task that needs a file outside its **Files** list stops and asks instead of
+   reaching for it.
+3. **Read-only outside your own files.** Reading a sibling task's in-progress code is fine;
+   editing it is not.
+4. **Merge in table order**, verifying after each merge — a green branch can still go red
+   against a sibling's merged work.
+
+### Sequencing hazards, already mitigated
+
+- **T9 needs a human.** The spike requires a real interactive session where *the user*
+  deliberately waits ~30s before approving a tool. An agent can register the hooks, collect
+  the scratch file and write up the findings, but cannot produce the measurement. Start it in
+  wave 1: it blocks T10 *and* decides whether `approvalMs` exists in the artifact at all.
+- **T5 edits T3's file.** T5 adds the time-split invariant to `test/corpus.test.ts`. Different
+  waves, so no live conflict — T3 leaves a marked extension point for it.
+- **T13 owns `App.tsx`.** T14 and T15 both need tabs and the nav stack, so T13 builds
+  `shell.ts` as a registry and wave 6 only registers into it. Without this, the last wave's
+  two agents overwrite each other.
 
 ## Open questions
 
