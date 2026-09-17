@@ -82,6 +82,14 @@ describe("App", () => {
     expect(lastFrame()?.toLowerCase()).not.toContain("install-hooks");
   });
 
+  it("shows an info note instead of the install-hooks suggestion when hooks are already installed", () => {
+    const { lastFrame } = render(createElement(App, { profile: makeProfile(), hooksInstalled: true }));
+    const frame = lastFrame()?.toLowerCase() ?? "";
+    expect(frame).toContain("derived, not exact");
+    expect(frame).toContain("session predates your hook");
+    expect(frame).not.toContain("install-hooks");
+  });
+
   it("switches and highlights tabs with ←→ instead of Tab", async () => {
     const { lastFrame, stdin } = render(createElement(App, { profile: makeProfile() }));
     expect(lastFrame()).toContain("[1/3]");
@@ -113,7 +121,6 @@ describe("App", () => {
         medianMs: 550,
         p90Ms: 1000,
         maxMs: 1000,
-        outlierCount: 0,
         unfinishedCount: 0,
         pctOfSession: 0.1,
         exactMs: null,
@@ -123,8 +130,8 @@ describe("App", () => {
           { group: "git", calls: 1, totalMs: 100, medianMs: 100, maxMs: 100, unfinishedCount: 0, pctOfBash: 0.1, callIds: ["toolu_git"] },
         ],
         callRefs: [
-          { id: "toolu_pnpm", name: "Bash", turnIndex: 0, startedAt: null, durationMs: 1000, isOutlier: false, inputPreview: '{"command":"pnpm test"}' },
-          { id: "toolu_git", name: "Bash", turnIndex: 0, startedAt: null, durationMs: 100, isOutlier: false, inputPreview: '{"command":"git status"}' },
+          { id: "toolu_pnpm", name: "Bash", turnIndex: 0, startedAt: null, durationMs: 1000, inputPreview: '{"command":"pnpm test"}' },
+          { id: "toolu_git", name: "Bash", turnIndex: 0, startedAt: null, durationMs: 100, inputPreview: '{"command":"git status"}' },
         ],
       },
     ];

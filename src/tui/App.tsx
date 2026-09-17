@@ -45,8 +45,26 @@ function Header({ profile }: { profile: Profile }): React.JSX.Element {
 }
 
 /** Shown under the header on every tab whenever tool timing is derived rather than measured — moved here (out of TimeSplitBar, Overview-only) so it isn't tied to whichever tab happens to render the time split. */
-function ToolTimingCaveat({ profile }: { profile: Profile }): React.JSX.Element | null {
+function ToolTimingCaveat({
+  profile,
+  hooksInstalled,
+}: {
+  profile: Profile;
+  hooksInstalled: boolean;
+}): React.JSX.Element | null {
   if (profile.timeline.precision !== "derived") return null;
+
+  if (hooksInstalled) {
+    return (
+      <Box marginBottom={1}>
+        <Text color="cyan">
+          Tool time includes approval waits — these are derived, not exact. This session predates
+          your hook install, so it can't be re-measured; sessions started from now on will have exact timings.
+        </Text>
+      </Box>
+    );
+  }
+
   return (
     <Box marginBottom={1}>
       <Text color="yellow">
@@ -80,11 +98,13 @@ function TabHost({ tab, profile, onDepthChange }: TabHostProps): React.JSX.Eleme
 
 export interface AppProps {
   profile: Profile;
+  /** Whether claude-profiler's hooks are currently installed — determines which derived-timing caveat to show. */
+  hooksInstalled?: boolean;
   /** Test hook: called alongside Ink's own `exit()` so quitting is observable without a real TTY. */
   onQuit?: () => void;
 }
 
-export function App({ profile, onQuit }: AppProps): React.JSX.Element {
+export function App({ profile, hooksInstalled = false, onQuit }: AppProps): React.JSX.Element {
   const [tabIndex, setTabIndex] = useState(0);
   // Depth of the active tab's own nav stack (TabHost's, reported up via
   // onDepthChange): ←→ cycles tabs only at depth 1, i.e. a tab's own root
@@ -115,7 +135,7 @@ export function App({ profile, onQuit }: AppProps): React.JSX.Element {
   return (
     <Box flexDirection="column">
       <Header profile={profile} />
-      <ToolTimingCaveat profile={profile} />
+      <ToolTimingCaveat profile={profile} hooksInstalled={hooksInstalled} />
       {tabs.length > 1 ? (
         <>
           <Box borderStyle="single" borderTop={false} borderLeft={false} borderRight={false} />

@@ -13,7 +13,7 @@ import "../tui/Timeline.js";
 import "../tui/Context.js";
 import { buildProfile, type Profile } from "../artifact/profile.js";
 import { writeProfileArtifact } from "../artifact/write.js";
-import { installHooks } from "../hooks/install.js";
+import { areHooksInstalled, installHooks } from "../hooks/install.js";
 import { uninstallHooks } from "../hooks/uninstall.js";
 
 export interface CliArgs {
@@ -101,7 +101,7 @@ export function printVersion(
 }
 
 async function runTui(profile: Profile): Promise<void> {
-  const { waitUntilExit } = render(createElement(App, { profile }));
+  const { waitUntilExit } = render(createElement(App, { profile, hooksInstalled: areHooksInstalled() }));
   await waitUntilExit();
 }
 

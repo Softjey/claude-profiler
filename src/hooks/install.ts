@@ -38,6 +38,14 @@ export function resolveHookScriptPath(): string {
   return fileURLToPath(new URL("./hook-script.js", import.meta.url));
 }
 
+export function areHooksInstalled(
+  settingsPath: string = defaultSettingsPath(),
+  scriptPath: string = resolveHookScriptPath(),
+): boolean {
+  const { parsed } = readSettingsFile(settingsPath);
+  return computeInstalledSettings(parsed, scriptPath).alreadyInstalled;
+}
+
 function readSettingsFile(path: string): { raw: string; parsed: Settings; existed: boolean } {
   if (!existsSync(path)) return { raw: "", parsed: {}, existed: false };
   const raw = readFileSync(path, "utf8");
