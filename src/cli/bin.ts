@@ -9,5 +9,5 @@ const pkg = JSON.parse(readFileSync(join(__dirname, "..", "..", "package.json"),
   version: string;
 };
 
-const exitCode = run(process.argv.slice(2), pkg.version);
+const exitCode = await run(process.argv.slice(2), pkg.version);
 process.exit(exitCode);
