@@ -3,6 +3,13 @@ import { createElement } from "react";
 import { resolveSession, type SessionListing } from "./resolve-session.js";
 import { SessionPicker } from "../tui/SessionPicker.js";
 import { App } from "../tui/App.js";
+// Registers the Timeline and Context tabs (T15) as an import side effect,
+// same mechanism as App.tsx's own "./Overview.js" import — order here fixes
+// the `⇥` cycle order (Overview, pulled in by App.js above, then Timeline,
+// then Context) without App.tsx ever needing to change (T14 runs in
+// parallel on that file per plan.md's T15 step 3).
+import "../tui/Timeline.js";
+import "../tui/Context.js";
 import { buildProfile, type Profile } from "../artifact/profile.js";
 import { writeProfileArtifact } from "../artifact/write.js";
 

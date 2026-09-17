@@ -33,3 +33,9 @@ export function formatDateTime(iso: string | null): string {
 export function truncate(text: string, maxChars: number): string {
   return text.length > maxChars ? `${text.slice(0, maxChars - 1)}…` : text;
 }
+
+export function formatCount(n: number): string {
+  if (n < 1000) return `${Math.round(n)}`;
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
