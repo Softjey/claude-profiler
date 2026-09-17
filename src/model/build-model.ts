@@ -47,18 +47,20 @@ function collapseBlockKinds(kinds: BlockKind[]): BlockKind {
   return "other";
 }
 
-/** A one-line preview of what the model itself wrote in this record. */
-function extractReplyPreview(content: ContentBlock[] | undefined): string {
+/** What the model itself wrote in this record, whitespace-collapsed to one line but never truncated. */
+function extractReplyFull(content: ContentBlock[] | undefined): string {
   if (!Array.isArray(content)) return "";
   const parts: string[] = [];
   for (const block of content) {
     if (isTextBlock(block)) parts.push(block.text ?? "");
     else if (isThinkingBlock(block)) parts.push(block.thinking ?? "");
   }
-  const collapsed = parts.join(" ").replace(/\s+/g, " ").trim();
-  return collapsed.length > REPLY_PREVIEW_MAX_CHARS
-    ? `${collapsed.slice(0, REPLY_PREVIEW_MAX_CHARS - 1)}\u2026`
-    : collapsed;
+  return parts.join(" ").replace(/\s+/g, " ").trim();
+}
+
+/** A one-line preview of what the model itself wrote in this record. */
+function extractReplyPreview(full: string): string {
+  return full.length > REPLY_PREVIEW_MAX_CHARS ? `${full.slice(0, REPLY_PREVIEW_MAX_CHARS - 1)}\u2026` : full;
 }
 
 /**
@@ -69,7 +71,7 @@ function extractReplyPreview(content: ContentBlock[] | undefined): string {
  * text blocks contribute, since tool_result/image blocks carry nothing a
  * person wrote themselves.
  */
-function extractPromptPreview(content: string | ContentBlock[] | undefined): string {
+function extractPromptFull(content: string | ContentBlock[] | undefined): string {
   const raw =
     typeof content === "string"
       ? content
@@ -80,11 +82,12 @@ function extractPromptPreview(content: string | ContentBlock[] | undefined): str
             .join(" ")
         : "";
 
-  const collapsed = raw.replace(/\s+/g, " ").trim();
-  if (collapsed.length === 0) return "(empty prompt)";
-  return collapsed.length > PROMPT_PREVIEW_MAX_CHARS
-    ? `${collapsed.slice(0, PROMPT_PREVIEW_MAX_CHARS - 1)}…`
-    : collapsed;
+  return raw.replace(/\s+/g, " ").trim();
+}
+
+function extractPromptPreview(full: string): string {
+  if (full.length === 0) return "(empty prompt)";
+  return full.length > PROMPT_PREVIEW_MAX_CHARS ? `${full.slice(0, PROMPT_PREVIEW_MAX_CHARS - 1)}…` : full;
 }
 
 function timestampMs(timestamp: string | undefined | null): number | null {
@@ -160,12 +163,14 @@ export function buildEventModel(records: TranscriptRecord[]): EventModel {
     if (record.type === "user") {
       if (isGenuinePrompt(record)) {
         turnIndex++;
+        const full = extractPromptFull(record.message?.content);
         events.push({
           type: "user_prompt",
           uuid: record.uuid,
           at: record.timestamp ?? null,
           turnIndex,
-          preview: extractPromptPreview(record.message?.content),
+          preview: extractPromptPreview(full),
+          full,
         });
       } else if (interruptionMarkerText(record) !== undefined) {
         events.push({
@@ -222,6 +227,7 @@ export function buildEventModel(records: TranscriptRecord[]): EventModel {
       if (requestId !== undefined) requestIdsSeen.add(requestId);
 
       const blockKinds = Array.isArray(message?.content) ? message.content.map(blockKindOf) : [];
+      const full = extractReplyFull(message?.content);
 
       events.push({
         type: "assistant",
@@ -239,7 +245,8 @@ export function buildEventModel(records: TranscriptRecord[]): EventModel {
         effort: record.effort,
         isApiError: record.isApiErrorMessage === true,
         errorKind: record.error,
-        preview: extractReplyPreview(message?.content),
+        preview: extractReplyPreview(full),
+        full,
       });
 
       const content = message?.content;

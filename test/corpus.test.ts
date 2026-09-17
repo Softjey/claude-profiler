@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildEventModel } from "../src/model/build-model.js";
+import { computeModelBreakdown } from "../src/metrics/model-breakdown.js";
 import { computeTimeSplit } from "../src/metrics/time-split.js";
 import { parseTranscript } from "../src/parse/parse-transcript.js";
 import type { TranscriptRecord } from "../src/parse/types.js";
@@ -58,6 +59,19 @@ describe("corpus smoke test", () => {
           split.spanMs,
         );
         expect(split.unaccountedMs).toBeGreaterThanOrEqual(0);
+
+        // ---- the model breakdown must explain that Model bucket exactly ----
+        // Over the whole local corpus, not just hand-built fixtures: the
+        // attribution walks real overlapping intervals, and a transcript
+        // where two records share a millisecond is the case that would break
+        // it silently.
+        const breakdown = computeModelBreakdown(events, toolUses);
+        expect(breakdown.totalMs).toBe(split.modelMs);
+        expect(breakdown.phases.reduce((sum, phase) => sum + phase.ms, 0)).toBe(split.modelMs);
+        expect(breakdown.suspectMs).toBeLessThanOrEqual(breakdown.totalMs);
+        for (const request of breakdown.requests) {
+          expect(request.firstBlockMs + request.continuationMs).toBe(request.totalMs);
+        }
       }
 
       const sortedVersions = [...versions].sort();
