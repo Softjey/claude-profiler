@@ -31,7 +31,7 @@ Arguments:
   sessionId        Session id: full uuid, unique prefix, or an agent-* name
 
 Options:
-  --json           Print the JSON profile artifact to stdout instead of launching the TUI
+  --json           Write the JSON profile artifact to a file instead of launching the TUI
   --out <path>     Write the JSON artifact to <path>
   --version        Print the version number and exit
   --help           Show this help message and exit
@@ -190,7 +190,7 @@ export async function run(
   const artifactPath = await writeProfileArtifact(profile, args.out);
 
   if (args.json) {
-    stdout(`${JSON.stringify(profile)}\n`);
+    stdout(`claude-profiler: wrote profile artifact to ${artifactPath}\n`);
     return 0;
   }
 
