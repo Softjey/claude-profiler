@@ -405,9 +405,10 @@ this plan assumes its data model and FR numbering.
      `outputTokens`, over non-suspect requests.
   2. Price thinking at `thinkingTokens × rate`, take waiting as the residual, leave the rest
      as generating. Every row is an estimate and the header says so.
-  3. Gate the fit: at least 8 usable requests, a positive slope, and a slope that moves less
-     than 25% between the session's own halves. Failing any of these returns null and the
-     TUI falls back to the measured grid.
+  3. Gate the fit on what is structural only: at least 8 usable requests and a positive
+     slope. Failing either returns null and the TUI falls back to the measured grid.
+     Stability across the session's halves is *reported* beside the rate, not gated — see
+     the amendment below.
   4. Carry the split in the artifact as `modelStages`, beside `modelBreakdown` rather than
      replacing it, with a runtime invariant that the three stages sum to `modelMs`.
 - **Rejected — exact waiting via `MessageDisplay`:** the hook records `firstFlushAt`, which
@@ -422,13 +423,19 @@ this plan assumes its data model and FR numbering.
   `a` and `b` that flip sign between those same halves (+5.62s / −8.13s, −13.8 / +38.0
   ms per 1k tokens). Only the token slope holds still, which is why waiting is a residual
   rather than a prediction.
+- **Amended after first use — the stability gate became a reported number.** A 25%
+  half-spread threshold initially refused the stages outright. Three real sessions measured
+  2.3%, 23.9% and 26.0%, so the threshold decided two of them on a coin-flip, and when it
+  landed the wrong way the screen swapped to an entirely different table with different row
+  names. A number the reader can weigh beats a cliff they cannot see. The spread is now
+  shown beside the rate, and the drill-down renders one table with one note line.
 - **Acceptance criteria:**
   - The three stages sum to `timeline.modelMs`, asserted before the artifact is written.
   - A planted rate is recovered from synthetic data, and planted per-request overhead lands
     in waiting.
   - A suspect request contributes its whole span to waiting and does not move the rate.
-  - Too few requests, a non-positive slope, or an unstable slope each return null rather
-    than a number.
+  - Too few requests or a non-positive slope return null rather than a number; an unstable
+    slope returns the split with its instability reported.
   - The measured block grid stays in the artifact and on screen; nothing that estimates
     overwrites something that measured.
 - **Verify:** `pnpm verify`, plus `buildProfile` over local transcripts of both sizes.

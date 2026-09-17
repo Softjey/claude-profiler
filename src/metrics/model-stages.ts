@@ -25,12 +25,17 @@ export interface GenerationRate {
   requests: number;
   /**
    * How far the slope moves when the session's first and second halves are
-   * fitted separately, as a fraction of the whole-session slope. This is the
-   * fit's own stability report, and the gate that rejects a bad one: on real
-   * sessions it lands around 2–3%, and a slope that swings far more than that
-   * is describing noise.
+   * fitted separately, as a fraction of the whole-session slope: the fit's own
+   * stability report, shown to the reader beside the rate.
+   *
+   * It was briefly a gate — a session past 25% got no stages at all. Three
+   * real sessions came in at 2.3%, 23.9% and 26.0%, so that threshold decided
+   * two of them on a coin-flip and swapped the whole table for a different one
+   * when it landed the wrong way. A number the reader can weigh beats a cliff
+   * they cannot see, so it reports instead of refusing. It can be null when
+   * either half has no spread in output tokens to fit against.
    */
-  halfSpread: number;
+  halfSpread: number | null;
 }
 
 export interface ModelStageSplit {
@@ -48,8 +53,6 @@ export interface ModelStageSplit {
 
 /** Below this many usable requests the slope says more about the sample than the session. */
 const MIN_SAMPLE = 8;
-/** A slope that moves more than this between the session's halves is not describing the session. */
-const MAX_HALF_SPREAD = 0.25;
 
 /**
  * Least-squares slope of model time against output tokens. The intercept is
@@ -112,10 +115,11 @@ function fittable(requests: ModelRequest[]): ModelRequest[] {
  * on every turn the person runs, to sharpen one row of one table. The trade
  * was measured and declined; see T18 in plan.md.
  *
- * Returns null rather than a bad answer when the session cannot support the
- * fit — too few requests, a non-positive slope, or a slope that will not hold
- * still across the session's own halves. Callers fall back to the measured
- * block grid, which explains less but never guesses.
+ * Returns null when there is no rate to be had at all — too few requests, or
+ * a slope saying that more output took less time. Those are structural, not
+ * questions of quality: callers then fall back to the measured block grid.
+ * How trustworthy an existing fit is, by contrast, is reported rather than
+ * ruled on (`rate.halfSpread`).
  */
 export function computeModelStages(breakdown: ModelBreakdown): ModelStageSplit | null {
   const usable = fittable(breakdown.requests);
@@ -127,9 +131,8 @@ export function computeModelStages(breakdown: ModelBreakdown): ModelStageSplit |
   const midpoint = Math.floor(usable.length / 2);
   const firstHalf = fitSlope(usable.slice(0, midpoint));
   const secondHalf = fitSlope(usable.slice(midpoint));
-  if (firstHalf === null || secondHalf === null) return null;
-  const halfSpread = Math.abs(firstHalf - secondHalf) / slope;
-  if (halfSpread > MAX_HALF_SPREAD) return null;
+  const halfSpread =
+    firstHalf === null || secondHalf === null ? null : Math.abs(firstHalf - secondHalf) / slope;
 
   let waitingMs = 0;
   let thinkingMs = 0;

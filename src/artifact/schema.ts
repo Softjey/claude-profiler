@@ -100,6 +100,7 @@ export const PROFILE_JSON_SCHEMA = {
         "toolsIncludeApprovals",
         "precision",
         "userGaps",
+        "unaccountedCauses",
       ],
       properties: {
         modelMs: { type: "number", minimum: 0 },
@@ -117,6 +118,18 @@ export const PROFILE_JSON_SCHEMA = {
             properties: {
               preview: { type: "string" },
               gapMs: { type: "number", minimum: 0 },
+            },
+          },
+        },
+        unaccountedCauses: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["label", "ms", "count"],
+            properties: {
+              label: { type: "string" },
+              ms: { type: "number", minimum: 0 },
+              count: { type: "integer", minimum: 0 },
             },
           },
         },
@@ -255,7 +268,7 @@ export const PROFILE_JSON_SCHEMA = {
             msPerToken: { type: "number", exclusiveMinimum: 0 },
             tokensPerSec: { type: "number", exclusiveMinimum: 0 },
             requests: { type: "integer", minimum: 0 },
-            halfSpread: { type: "number", minimum: 0 },
+            halfSpread: { type: ["number", "null"], minimum: 0 },
           },
         },
         clampedRequests: { type: "integer", minimum: 0 },

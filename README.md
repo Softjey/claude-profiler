@@ -104,26 +104,27 @@ Task          4       9m 12s      1m 58s    1
 estimate you can read at a glance, and once as the measurement underneath it.
 
 ```
-estimated · generation priced at 106.1 tok/s (183 requests, ±2.3% across halves)
-> Waiting for the model ██████░░░░░░░░░░░░░░ 29.3% (13m17s)
-  Thinking              ███░░░░░░░░░░░░░░░░░ 13.1% (5m55s)
-  Generating            ████████████░░░░░░░░ 57.6% (26m06s)
-  thinking is priced from measured thinking tokens — the firmest row here
-  waiting is the leftover, so it absorbs whatever the rate got wrong · 10/183 clamped
+estimated · 106.1 tok/s over 183 requests, ±2.3% across halves
+> Waiting for first token ██████░░░░░░░░░░░░░░ 29.3% (13m17s)
+  Thinking                ███░░░░░░░░░░░░░░░░░ 13.1% (5m55s)
+  Generating              ████████████░░░░░░░░ 57.6% (26m06s)
 ```
 
 One session-wide generation rate is fitted from the requests themselves — the slope of
 wall-clock against output tokens — and thinking is then priced from the thinking tokens the
-transcript already records. Waiting is the residual. The rate is the only coefficient stable
-enough to trust: fitting waiting directly, against context size or as a constant, produced
-coefficients that flipped sign between the two halves of the same session, while the slope
-moved 2–3%. If a session cannot support the fit at all — fewer than 8 usable requests, a
-non-positive slope, or a slope that will not hold still across the session's halves — these
-rows are not shown rather than shown wrong.
+transcript already records. Waiting is the residual, so it absorbs whatever the rate got
+wrong. The rate is the only coefficient stable enough to use: fitting waiting directly,
+against context size or as a constant, produced coefficients that flipped sign between the
+two halves of the same session, while the slope moved 2–3%.
 
-Below it, the same time as Claude Code actually recorded it. One transcript record per
-content block, each with its own timestamp, so this is measured wall-clock per stage — not
-`modelMs` split by token share:
+`±26.0% across halves` is that stability, measured on the session in front of you and
+reported rather than ruled on — refit the first and second halves separately and this is how
+far the rate moved. A small number means the session had one speed; a large one means it did
+not, and the split is correspondingly rough.
+
+When no rate can be fitted at all — fewer than 8 usable requests, or a slope saying more
+output took less time — the drill-down falls back to the time exactly as Claude Code recorded
+it, one transcript record per content block:
 
 ```
 measured from per-block record timestamps · 83 requests, 68 written as more than one block

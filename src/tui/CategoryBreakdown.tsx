@@ -1,8 +1,15 @@
 import { Box, Text } from "ink";
 import type { MergedTimeSplit } from "../hooks/sidecar.js";
-import { collapsePhases, leadingMix, type ModelBreakdown, type ModelStage } from "../metrics/model-breakdown.js";
+import {
+  collapsePhases,
+  leadingMix,
+  type LeadingMix,
+  type ModelBreakdown,
+  type ModelStage,
+  type ModelStageSlice,
+} from "../metrics/model-breakdown.js";
 import type { ModelStageSplit, Stage } from "../metrics/model-stages.js";
-import type { UserGap } from "../metrics/time-split.js";
+import type { UnaccountedCause, UserGap } from "../metrics/time-split.js";
 import { formatCount, formatMs, formatPercent, truncate } from "./format.js";
 
 const BAR_WIDTH = 20;
@@ -36,7 +43,7 @@ const STAGE_COLORS: Record<ModelStage, string> = {
 const STAGE_LABEL_WIDTH = 34;
 
 const REQUEST_STAGE_LABELS: Record<Stage, string> = {
-  waiting: "Waiting for the model",
+  waiting: "Waiting for first token",
   thinking: "Thinking",
   generating: "Generating",
 };
@@ -47,7 +54,7 @@ const REQUEST_STAGE_COLORS: Record<Stage, string> = {
   generating: "cyan",
 };
 
-const REQUEST_STAGE_LABEL_WIDTH = 24;
+const REQUEST_STAGE_LABEL_WIDTH = 26;
 
 export interface ModelBreakdownTableProps {
   breakdown: ModelBreakdown;
@@ -79,8 +86,9 @@ function RequestStages({
   return (
     <Box flexDirection="column">
       <Text dimColor>
-        estimated · generation priced at {split.rate.tokensPerSec.toFixed(1)} tok/s ({split.rate.requests}{" "}
-        requests, ±{formatPercent(split.rate.halfSpread)} across halves)
+        estimated · {split.rate.tokensPerSec.toFixed(1)} tok/s over {split.rate.requests} request
+        {split.rate.requests === 1 ? "" : "s"}
+        {split.rate.halfSpread === null ? "" : `, ±${formatPercent(split.rate.halfSpread)} across halves`}
       </Text>
       {split.stages.map((stage, i) => {
         const selected = active && i === selectedIndex;
@@ -99,11 +107,66 @@ function RequestStages({
           </Box>
         );
       })}
-      <Text dimColor>{"  "}thinking is priced from measured thinking tokens — the firmest row here</Text>
+    </Box>
+  );
+}
+
+
+/**
+ * The fallback: the Model bucket exactly as the transcript recorded it, block
+ * kind by block kind. It only appears when no rate could be fitted at all, so
+ * the screen never shows two answers to the same question at once — but it
+ * still has to explain that its leading row is not pure generation, which is
+ * why it carries prose the stage table does not need.
+ */
+function MeasuredGrid({
+  coverage,
+  stages,
+  mix,
+  selectedIndex,
+  active,
+}: {
+  coverage: ModelBreakdown["coverage"];
+  stages: ModelStageSlice[];
+  mix: LeadingMix;
+  selectedIndex: number;
+  active: boolean;
+}): React.JSX.Element {
+  return (
+    <Box flexDirection="column">
       <Text dimColor>
-        {"  "}waiting is the leftover, so it absorbs whatever the rate got wrong
-        {split.clampedRequests > 0 ? ` · ${split.clampedRequests}/${split.totalRequests} clamped` : ""}
+        measured from per-block record timestamps · {coverage.totalRequests} request
+        {coverage.totalRequests === 1 ? "" : "s"}, {coverage.requestsWithBlockSplit} written as more than one block
       </Text>
+      {stages.map((stage, i) => {
+        const selected = active && i === selectedIndex;
+        return (
+          <Box key={stage.stage} flexDirection="column">
+            <Box>
+              <Box width={STAGE_LABEL_WIDTH} flexShrink={0}>
+                <Text bold={selected} wrap="truncate-end">
+                  {selected ? ">" : " "} {STAGE_LABELS[stage.stage]}
+                </Text>
+              </Box>
+              {bar(stage.pctOfModel, STAGE_COLORS[stage.stage])}
+              <Text>
+                {" "}
+                {formatPercent(stage.pctOfModel)} ({formatMs(stage.ms)}, {stage.slices} slice
+                {stage.slices === 1 ? "" : "s"})
+              </Text>
+            </Box>
+            {stage.stage === "reading" ? (
+              <Text dimColor>
+                {"      "}
+                {mix.thinkingSlices} of those began by thinking ({formatMs(mix.thinkingMs)}) · {mix.outputSlices} went
+                straight to output ({formatMs(mix.outputMs)})
+              </Text>
+            ) : null}
+          </Box>
+        );
+      })}
+      <Text dimColor>{"  "}the first row also holds the API queue and the first block's own output:</Text>
+      <Text dimColor>{"  "}a block is timestamped at its end, so those cannot be told apart</Text>
     </Box>
   );
 }
@@ -141,43 +204,16 @@ export function ModelBreakdownTable({
   return (
     <Box flexDirection="column">
       {split !== null ? (
-        <Box marginBottom={1}>
-          <RequestStages split={split} selectedIndex={selectedIndex} active={active} />
-        </Box>
-      ) : null}
-      <Text dimColor>
-        measured from per-block record timestamps · {coverage.totalRequests} request
-        {coverage.totalRequests === 1 ? "" : "s"}, {coverage.requestsWithBlockSplit} written as more than one block
-      </Text>
-      {stages.map((stage, i) => {
-        const selected = active && split === null && i === selectedIndex;
-        return (
-          <Box key={stage.stage} flexDirection="column">
-            <Box>
-              <Box width={STAGE_LABEL_WIDTH} flexShrink={0}>
-                <Text bold={selected} wrap="truncate-end">
-                  {selected ? ">" : " "} {STAGE_LABELS[stage.stage]}
-                </Text>
-              </Box>
-              {bar(stage.pctOfModel, STAGE_COLORS[stage.stage])}
-              <Text>
-                {" "}
-                {formatPercent(stage.pctOfModel)} ({formatMs(stage.ms)}, {stage.slices} slice
-                {stage.slices === 1 ? "" : "s"})
-              </Text>
-            </Box>
-            {stage.stage === "reading" ? (
-              <Text dimColor>
-                {"      "}
-                {mix.thinkingSlices} of those began by thinking ({formatMs(mix.thinkingMs)}) · {mix.outputSlices} went
-                straight to output ({formatMs(mix.outputMs)})
-              </Text>
-            ) : null}
-          </Box>
-        );
-      })}
-      <Text dimColor>{"  "}the first row also holds the API queue and the first block's own output:</Text>
-      <Text dimColor>{"  "}a block is timestamped at its end, so those cannot be told apart</Text>
+        <RequestStages split={split} selectedIndex={selectedIndex} active={active} />
+      ) : (
+        <MeasuredGrid
+          coverage={coverage}
+          stages={stages}
+          mix={mix}
+          selectedIndex={selectedIndex}
+          active={active}
+        />
+      )}
       {suspectMs > 0 ? (
         <Box marginTop={1} flexDirection="column">
           <Text color="red">
@@ -296,25 +332,86 @@ export interface UnaccountedBreakdownProps {
   unmatchedToolUses: number;
 }
 
+const CAUSE_LABEL_WIDTH = 24;
+
 /**
- * Unaccounted's own drill-down: unlike the other three, the transcript
- * carries no further structured signal for this bucket (no compaction or
- * resume events in the data model), so this surfaces the one thing that is
- * known to leak into it — tool calls that started but never recorded a
- * matching result (FR10) — rather than inventing sub-categories the data
- * can't support.
+ * Unaccounted's own drill-down: the parts of the bucket the transcript can
+ * actually name (`timeline.unaccountedCauses`, time-split.ts), then whatever
+ * is left over as a row of its own. The remainder is always shown, even at
+ * zero, so the list can never be misread as a full decomposition of a
+ * bucket whose whole point is that its contents are unknown.
+ *
+ * Unmatched tool calls stay a sentence rather than a row: a call that never
+ * recorded a result has no end timestamp, so there is a count to report but
+ * no duration to attribute (FR10).
  */
 export function UnaccountedBreakdown({ timeline, unmatchedToolUses }: UnaccountedBreakdownProps): React.JSX.Element {
+  const causes = timeline.unaccountedCauses;
+  const namedMs = causes.reduce((total, cause) => total + cause.ms, 0);
+  const share = (ms: number): string =>
+    formatPercent(timeline.spanMs > 0 ? ms / timeline.spanMs : 0);
+
   return (
     <Box flexDirection="column">
       <Text>
-        {formatMs(timeline.unaccountedMs)} ({formatPercent(timeline.spanMs > 0 ? timeline.unaccountedMs / timeline.spanMs : 0)}) has no known cause
+        {formatMs(timeline.unaccountedMs)} ({share(timeline.unaccountedMs)}){" "}
+        {causes.length === 0 ? "has no known cause" : "no bucket may claim"}
       </Text>
-      <Text dimColor>
-        {unmatchedToolUses > 0
-          ? `${unmatchedToolUses} tool call${unmatchedToolUses === 1 ? "" : "s"} started but never recorded a result — an interrupted or ` +
-            "still-running session — and some of that time likely ended up here."
-          : "No incomplete tool calls in this session; the rest is rounding and gaps between recorded events."}
+      {causes.length > 0 ? (
+        <Box flexDirection="column" marginTop={1}>
+          {causes.map((cause) => (
+            <CauseRow
+              key={cause.label}
+              label={causeLabel(cause)}
+              ms={cause.ms}
+              share={share(cause.ms)}
+              dim={false}
+            />
+          ))}
+          <CauseRow
+            label="no known cause"
+            ms={Math.max(0, timeline.unaccountedMs - namedMs)}
+            share={share(Math.max(0, timeline.unaccountedMs - namedMs))}
+            dim
+          />
+        </Box>
+      ) : null}
+      <Box marginTop={causes.length > 0 ? 1 : 0}>
+        <Text dimColor>
+          {unmatchedToolUses > 0
+            ? `${unmatchedToolUses} tool call${unmatchedToolUses === 1 ? "" : "s"} started but never recorded a result — an interrupted or ` +
+              "still-running session — and some of that time likely ended up here."
+            : "No incomplete tool calls in this session; the rest is rounding and gaps between recorded events."}
+        </Text>
+      </Box>
+    </Box>
+  );
+}
+
+function causeLabel(cause: UnaccountedCause): string {
+  return cause.count > 1 ? `${cause.label} (${formatCount(cause.count)}x)` : cause.label;
+}
+
+function CauseRow({
+  label,
+  ms,
+  share,
+  dim,
+}: {
+  label: string;
+  ms: number;
+  share: string;
+  dim: boolean;
+}): React.JSX.Element {
+  return (
+    <Box>
+      <Box width={CAUSE_LABEL_WIDTH} flexShrink={0}>
+        <Text dimColor={dim} wrap="truncate-end">
+          {truncate(label, CAUSE_LABEL_WIDTH)}
+        </Text>
+      </Box>
+      <Text dimColor={dim}>
+        {formatMs(ms)} ({share})
       </Text>
     </Box>
   );

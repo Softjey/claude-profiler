@@ -108,8 +108,9 @@ describe("computeModelStages", () => {
     expect(computeModelStages(breakdownOf(cleanSession(4)))).toBeNull();
   });
 
-  it("refuses a session whose rate will not hold still across its own halves", () => {
-    // First half at 100 tok/s, second half at 10 tok/s: one slope describes neither.
+  it("reports an unstable rate rather than refusing to answer", () => {
+    // First half at 100 tok/s, second half at 10 tok/s: one slope describes
+    // neither well, and saying so beats swapping the table for a different one.
     const requests = [
       ...Array.from({ length: 8 }, (_, i) => {
         const outputTokens = 100 + i * 50;
@@ -120,7 +121,9 @@ describe("computeModelStages", () => {
         return request({ totalMs: 2000 + outputTokens * 100, outputTokens });
       }),
     ];
-    expect(computeModelStages(breakdownOf(requests))).toBeNull();
+    const split = computeModelStages(breakdownOf(requests));
+    expect(split).not.toBeNull();
+    expect(split?.rate.halfSpread ?? 0).toBeGreaterThan(0.25);
   });
 
   it("refuses a session where more output did not take longer", () => {
