@@ -175,7 +175,16 @@ this plan assumes its data model and FR numbering.
   3. Context series: one entry per assistant turn with `cacheReadTokens`, `cacheCreateTokens`,
      `outputTokens`, `thinkingTokens`.
 - **Acceptance criteria:**
-  - On session `54fd3ef0`: total `cacheRead` is 139,992,949 and `cost.totalCostUSD` ≈ 85.19.
+  - On session `54fd3ef0`: `cost.totalCostUSD` ≈ 85.19, read from `cost-state`.
+  - `TokenStats.totals.cacheRead` is the raw sum of `message.usage.cache_read_input_tokens`
+    across every `assistant` record (FR15's stated method — exact and reproducible in 100%
+    of sessions, unlike `cost-state`). On a session with retried API calls logged as separate
+    `assistant` records (e.g. `54fd3ef0`, where `totalAPIDuration` and
+    `totalAPIDurationWithoutRetries` differ in its `cost-state` record), this sum is **not**
+    expected to match `cost-state.modelUsage[model].cacheReadInputTokens` — that field is
+    Claude Code's own internal, non-reproducible accounting, not derivable from the
+    transcript's `usage` blocks alone. `139,992,949` was that internal number, not a sum;
+    dropped as an acceptance criterion for this reason.
   - On any session before `2.1.260`, `cost` is `null` and nothing throws.
 - **Verify:** `pnpm vitest run src/metrics`
 
