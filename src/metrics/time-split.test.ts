@@ -68,6 +68,22 @@ describe("computeTimeSplit", () => {
     expect(split.modelMs).toBe(2000);
     expect(split.toolsMs).toBe(10_000);
     expect(split.userMs).toBe(8000);
+    expect(split.userGapsMs).toEqual([8000]);
+  });
+
+  it("reports one userGapsMs entry per assistant-turn-end -> next-prompt gap, in order", () => {
+    const records: TranscriptRecord[] = [
+      userPrompt("u1", "2026-01-01T00:00:00.000Z"),
+      assistant("a1", "2026-01-01T00:00:01.000Z", [], "end_turn"),
+      userPrompt("u2", "2026-01-01T00:00:06.000Z"), // 5s gap
+      assistant("a2", "2026-01-01T00:00:07.000Z", [], "end_turn"),
+      userPrompt("u3", "2026-01-01T00:00:37.000Z"), // 30s gap
+    ];
+
+    const { events, toolUses } = buildEventModel(records);
+    const split = computeTimeSplit(events, toolUses);
+
+    expect(split.userGapsMs).toEqual([5000, 30_000]);
   });
 
   it("merges three parallel 10s tool calls into 10s of toolsMs, not 30s", () => {
@@ -116,6 +132,7 @@ describe("computeTimeSplit", () => {
       spanMs: 0,
       toolsIncludeApprovals: true,
       precision: "derived",
+      userGapsMs: [],
     });
   });
 });

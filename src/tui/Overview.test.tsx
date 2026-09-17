@@ -58,6 +58,7 @@ function makeProfile(overrides: Partial<Profile> = {}): Profile {
       spanMs: 10_000,
       toolsIncludeApprovals: true,
       precision: "derived",
+      userGapsMs: [],
     },
     tools: [makeTool({ name: "Bash" }), makeTool({ name: "Read", totalMs: 500, medianMs: 100 })],
     subagents: [],

@@ -53,6 +53,7 @@ const baseTimeline: TimeSplit = {
   spanMs: 350,
   toolsIncludeApprovals: true,
   precision: "derived",
+  userGapsMs: [],
 };
 
 describe("readSidecar", () => {

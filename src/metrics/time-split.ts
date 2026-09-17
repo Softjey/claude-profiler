@@ -9,6 +9,14 @@ export interface TimeSplit {
   spanMs: number;
   toolsIncludeApprovals: true;
   precision: "derived";
+  /**
+   * One entry per assistant-turn-end → next-user-prompt gap, in chronological
+   * order (D-follow-up: the "You" drill-down histogram). Raw gap lengths, not
+   * adjusted by the tools/model subtraction that keeps the four headline
+   * buckets mutually exclusive — so this can sum to slightly more than
+   * `userMs`, same as any diagnostic breakdown of a derived bucket.
+   */
+  userGapsMs: number[];
 }
 
 function parseMs(at: string | null | undefined): number | null {
@@ -120,6 +128,7 @@ export function computeTimeSplit(events: ModelEvent[], toolUses: ToolUseEvent[])
       spanMs: 0,
       toolsIncludeApprovals: true,
       precision: "derived",
+      userGapsMs: [],
     };
   }
 
@@ -138,15 +147,14 @@ export function computeTimeSplit(events: ModelEvent[], toolUses: ToolUseEvent[])
     mergeIntervals(buildModelIntervals(events, sortedUniquePoints)),
     toolsFinal,
   );
-  const userFinal = subtractIntervals(
-    mergeIntervals(buildUserIntervals(events)),
-    mergeIntervals([...toolsFinal, ...modelFinal]),
-  );
+  const userRaw = mergeIntervals(buildUserIntervals(events));
+  const userFinal = subtractIntervals(userRaw, mergeIntervals([...toolsFinal, ...modelFinal]));
 
   const toolsMs = sumMs(toolsFinal);
   const modelMs = sumMs(modelFinal);
   const userMs = sumMs(userFinal);
   const unaccountedMs = Math.max(0, spanMs - toolsMs - modelMs - userMs);
+  const userGapsMs = userRaw.map((interval) => interval.endMs - interval.startMs);
 
   return {
     modelMs,
@@ -156,5 +164,6 @@ export function computeTimeSplit(events: ModelEvent[], toolUses: ToolUseEvent[])
     spanMs,
     toolsIncludeApprovals: true,
     precision: "derived",
+    userGapsMs,
   };
 }

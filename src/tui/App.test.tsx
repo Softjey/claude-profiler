@@ -34,6 +34,7 @@ function makeProfile(): Profile {
       spanMs: 10_000,
       toolsIncludeApprovals: true,
       precision: "derived",
+      userGapsMs: [],
     },
     tools: [],
     subagents: [],
