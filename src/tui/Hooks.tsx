@@ -233,9 +233,20 @@ function CacheWaste({ hooks }: { hooks: HookInsights }): React.JSX.Element | nul
   );
 }
 
-function Lifecycle({ hooks }: { hooks: HookInsights }): React.JSX.Element {
+function Lifecycle({ hooks }: { hooks: HookInsights }): React.JSX.Element | null {
   const { lifecycle, compaction } = hooks;
   const sources = Object.entries(lifecycle.promptSources);
+
+  // Every row below is conditional, so without this the section renders as a
+  // bare heading — which is what a v1 sidecar, carrying no lifecycle events at
+  // all, produces.
+  const hasContent =
+    lifecycle.idleMs > 0 ||
+    sources.length > 0 ||
+    lifecycle.turnsWaitingOnBackground > 0 ||
+    compaction !== null ||
+    lifecycle.endReason !== undefined;
+  if (!hasContent) return null;
 
   return (
     <Section title="Session">

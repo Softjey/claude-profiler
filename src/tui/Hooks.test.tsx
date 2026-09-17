@@ -115,6 +115,9 @@ describe("HooksScreen", () => {
     expect(frame).not.toContain("Cache rewrites");
     expect(frame).not.toContain("Streaming");
     expect(frame).not.toContain("Subagents");
+    // Every row of the Session section is conditional too, so a sidecar with
+    // no lifecycle events at all must not leave a bare heading behind.
+    expect(frame).not.toContain("Session");
   });
 
   it("reports the retry tax with interrupts called out separately", () => {
