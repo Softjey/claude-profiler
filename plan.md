@@ -451,12 +451,22 @@ Expected conflicts, and the answer to each:
 
 ## Open questions
 
-- **T9 blocks T10's shape.** Whether `PreToolUse` fires before or after the permission
-  prompt is unverified. If it fires before, hooks give exact *total* time but still cannot
-  isolate approval wait — in that case `approvalMs` must be dropped from the artifact and
-  the UI rather than shipped as a guess. Resolve by running T9 before writing T10.
+- ~~**T9 blocks T10's shape.**~~ **Resolved.** `PreToolUse` fires *before* the permission
+  prompt — its return value may carry a `permissionDecision`, so it has to. The conclusion
+  T9 anticipated was right: with those two events alone, `approvalMs` is a guess. Measured
+  across every sidecar on this machine, in sessions running `defaultMode: auto` where
+  nothing could have been approved by hand, `(Post − Pre) − duration_ms` has a hard floor
+  near 30ms and a second cluster around 1.5s — it was mostly the profiler's own hook
+  spawns, benchmarked at ~35ms each.
+  Rather than dropping `approvalMs`, subscribing to `PermissionRequest` makes the split
+  exact: overhead is `PermissionRequest − Pre`, the decision is what remains (SPEC FR24).
+  v1 sidecars keep `approvalPrecision: "unsplit"` and are labelled as such.
 - **Subagent matching confidence (T8).** Whether the `Task` tool result carries a usable
   agent id, or whether time containment is the only available heuristic, is unverified.
   If only time containment works, ambiguous matches must be left unlinked, not guessed.
+  Partly sidestepped: with hooks, `SubagentStart`/`SubagentStop` carry the agent id and
+  its transcript path outright, and every tool event carries the `agent_id` it ran under,
+  so hook-profiled sessions need no matching at all. The heuristic still governs the
+  ~97% of sessions that ran without hooks.
 - **Cost (D7).** Deferred by the user, not resolved. Revisit after v1: whether to bundle a
   price snapshot so cost works in the other ~97.6% of sessions.
