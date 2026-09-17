@@ -99,4 +99,47 @@ describe("App", () => {
     await tick();
     expect(lastFrame()).toContain("[1/3]");
   });
+
+  it("gives ←→ to a drilled-into screen instead of cycling tabs (ToolDetail's Bash view toggle)", async () => {
+    const profile = makeProfile();
+    profile.tools = [
+      {
+        name: "Bash",
+        kind: "builtin",
+        mcpServer: undefined,
+        calls: 2,
+        totalMs: 1100,
+        typicalMs: 1100,
+        medianMs: 550,
+        p90Ms: 1000,
+        maxMs: 1000,
+        outlierCount: 0,
+        unfinishedCount: 0,
+        pctOfSession: 0.1,
+        exactMs: null,
+        approvalMs: null,
+        bashGroups: [
+          { group: "pnpm", calls: 1, totalMs: 1000, medianMs: 1000, maxMs: 1000, unfinishedCount: 0, pctOfBash: 0.9, callIds: ["toolu_pnpm"] },
+          { group: "git", calls: 1, totalMs: 100, medianMs: 100, maxMs: 100, unfinishedCount: 0, pctOfBash: 0.1, callIds: ["toolu_git"] },
+        ],
+        callRefs: [
+          { id: "toolu_pnpm", name: "Bash", turnIndex: 0, startedAt: null, durationMs: 1000, isOutlier: false, inputPreview: '{"command":"pnpm test"}' },
+          { id: "toolu_git", name: "Bash", turnIndex: 0, startedAt: null, durationMs: 100, isOutlier: false, inputPreview: '{"command":"git status"}' },
+        ],
+      },
+    ];
+
+    const { lastFrame, stdin } = render(createElement(App, { profile }));
+    stdin.write("\r"); // categories -> detail focus
+    await tick();
+    stdin.write("\r"); // drill into the Bash row
+    await tick();
+    expect(lastFrame()).toContain("By command"); // now inside ToolDetailScreen, on it by default
+
+    stdin.write("[C"); // →: must toggle ToolDetailScreen's view (to Calls), not cycle tabs
+    await tick();
+    expect(lastFrame()).toContain("[1/3]"); // still on the Overview tab
+    expect(lastFrame()).toContain("Overview");
+    expect(lastFrame()).toContain("pnpm test"); // switched to the Calls view
+  });
 });

@@ -172,4 +172,80 @@ describe("ToolDetailScreen", () => {
     // still toolu_fast, not reset back to the first (outlier) row
     expect(lastFrame()).toContain("toolu_fast");
   });
+
+  function makeBashGroupsTool(): ExactToolStat {
+    return makeTool({
+      name: "Bash",
+      callRefs: [
+        makeCall({ id: "toolu_git", durationMs: 749, isOutlier: false, inputPreview: '{"command":"git status"}' }),
+        makeCall({
+          id: "toolu_pnpm",
+          durationMs: 1_064_111,
+          isOutlier: true,
+          inputPreview: '{"command":"pnpm test"}',
+        }),
+      ],
+      bashGroups: [
+        {
+          group: "pnpm",
+          calls: 1,
+          totalMs: 1_064_111,
+          medianMs: 1_064_111,
+          maxMs: 1_064_111,
+          unfinishedCount: 0,
+          pctOfBash: 0.999,
+          callIds: ["toolu_pnpm"],
+        },
+        {
+          group: "git",
+          calls: 1,
+          totalMs: 749,
+          medianMs: 749,
+          maxMs: 749,
+          unfinishedCount: 0,
+          pctOfBash: 0.001,
+          callIds: ["toolu_git"],
+        },
+      ],
+    });
+  }
+
+  it("does not offer a By command view for a Bash tool with at most one group", () => {
+    const tool = makeTool({ name: "Bash", bashGroups: [] });
+    const { lastFrame } = renderToolDetail(tool, makeProfile());
+    expect(lastFrame()).not.toContain("By command");
+  });
+
+  it("shows the By command view by default, and switches to Calls on → and back on ←", async () => {
+    const tool = makeBashGroupsTool();
+    const { lastFrame, stdin } = renderToolDetail(tool, makeProfile());
+
+    expect(lastFrame()).toContain("By command"); // toggle UI is offered
+    const groupedFrame = lastFrame() ?? "";
+    expect(groupedFrame).toContain("pnpm");
+    expect(groupedFrame).toContain("git");
+    expect(groupedFrame).not.toContain("pnpm test"); // starts on the By command view by default
+
+    stdin.write("[C"); // →: switch to the Calls view
+    await tick();
+    expect(lastFrame()).toContain("pnpm test"); // raw commands, not grouped
+
+    stdin.write("[D"); // ←: back to the By command view
+    await tick();
+    expect(lastFrame()).not.toContain("pnpm test");
+  });
+
+  it("drills from a selected group into just that group's calls on Enter", async () => {
+    const tool = makeBashGroupsTool();
+    const { lastFrame, stdin } = renderToolDetail(tool, makeProfile());
+
+    // already on the By command view (default), top row selected (pnpm — sorted by totalMs desc)
+    stdin.write("\r"); // drill into the pnpm group
+    await tick();
+
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("Bash · pnpm");
+    expect(frame).toContain("pnpm test");
+    expect(frame).not.toContain("git status"); // the other group's call is filtered out
+  });
 });

@@ -1,5 +1,5 @@
 import { Box, Text, useApp, useInput } from "ink";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Profile } from "../artifact/profile.js";
 import { getTabs, useNavStack, type Tab } from "./shell.js";
 import { formatCostUSD, formatDateTime, formatMs } from "./format.js";
@@ -11,6 +11,8 @@ import "./Overview.js";
 interface TabHostProps {
   tab: Tab;
   profile: Profile;
+  /** Reported on every depth change so App can tell whether ←→ should cycle tabs or leave it to the drilled-into screen. */
+  onDepthChange: (depth: number) => void;
 }
 
 const HEADER_LABEL_WIDTH = 9;
@@ -60,8 +62,12 @@ function ToolTimingCaveat({ profile }: { profile: Profile }): React.JSX.Element 
  * each tab gets a fresh nav stack — drilling back out on `Esc` only needs to
  * restore state within a tab, not across a tab switch.
  */
-function TabHost({ tab, profile }: TabHostProps): React.JSX.Element {
+function TabHost({ tab, profile, onDepthChange }: TabHostProps): React.JSX.Element {
   const nav = useNavStack({ id: tab.id, render: tab.render });
+
+  useEffect(() => {
+    onDepthChange(nav.depth);
+  }, [nav.depth, onDepthChange]);
 
   useInput((_input, key) => {
     if (key.escape && nav.canPop) {
@@ -80,14 +86,23 @@ export interface AppProps {
 
 export function App({ profile, onQuit }: AppProps): React.JSX.Element {
   const [tabIndex, setTabIndex] = useState(0);
+  // Depth of the active tab's own nav stack (TabHost's, reported up via
+  // onDepthChange): ←→ cycles tabs only at depth 1, i.e. a tab's own root
+  // screen. Once a screen is pushed (depth > 1) — as ToolDetailScreen does
+  // for its Bash "By command" view toggle — ←→ belongs to that screen
+  // instead, or every drilled-in screen would fight this handler for the
+  // same keypress.
+  const [depth, setDepth] = useState(1);
   const { exit } = useApp();
   const tabs = getTabs();
   const activeTab = tabs[tabIndex % tabs.length] as Tab;
 
   useInput((input, key) => {
     if (key.leftArrow) {
+      if (depth > 1) return;
       setTabIndex((i) => (i - 1 + tabs.length) % tabs.length);
     } else if (key.rightArrow) {
+      if (depth > 1) return;
       setTabIndex((i) => (i + 1) % tabs.length);
     } else if (input === "q") {
       exit();
@@ -124,7 +139,7 @@ export function App({ profile, onQuit }: AppProps): React.JSX.Element {
           </Box>
         </>
       ) : null}
-      <TabHost key={activeTab.id} tab={activeTab} profile={profile} />
+      <TabHost key={activeTab.id} tab={activeTab} profile={profile} onDepthChange={setDepth} />
     </Box>
   );
 }

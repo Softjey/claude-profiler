@@ -167,7 +167,7 @@ export const PROFILE_JSON_SCHEMA = {
     },
     bashGroupStat: {
       type: "object",
-      required: ["group", "calls", "totalMs", "medianMs", "maxMs", "unfinishedCount", "pctOfBash"],
+      required: ["group", "calls", "totalMs", "medianMs", "maxMs", "unfinishedCount", "pctOfBash", "callIds"],
       properties: {
         group: { type: "string" },
         calls: { type: "integer", minimum: 0 },
@@ -176,6 +176,7 @@ export const PROFILE_JSON_SCHEMA = {
         maxMs: { type: "number", minimum: 0 },
         unfinishedCount: { type: "integer", minimum: 0 },
         pctOfBash: { type: "number", minimum: 0 },
+        callIds: { type: "array", items: { type: "string" } },
       },
     },
     subagentStat: {

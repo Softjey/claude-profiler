@@ -65,8 +65,27 @@ describe("computeBashGroups", () => {
   it("buckets calls with no string command under (unknown)", () => {
     const stats = computeBashGroups([bashCall({ id: "1", input: {}, durationMs: 100 })]);
     expect(stats).toEqual([
-      { group: "(unknown)", calls: 1, totalMs: 100, medianMs: 100, maxMs: 100, unfinishedCount: 0, pctOfBash: 1 },
+      {
+        group: "(unknown)",
+        calls: 1,
+        totalMs: 100,
+        medianMs: 100,
+        maxMs: 100,
+        unfinishedCount: 0,
+        pctOfBash: 1,
+        callIds: ["1"],
+      },
     ]);
+  });
+
+  it("tracks the call ids belonging to each group", () => {
+    const stats = computeBashGroups([
+      bashCall({ id: "1", input: { command: "git status" }, durationMs: 100 }),
+      bashCall({ id: "2", input: { command: "git push" }, durationMs: 200 }),
+      bashCall({ id: "3", input: { command: "pnpm test" }, durationMs: 50 }),
+    ]);
+    const git = stats.find((s) => s.group === "git");
+    expect(git?.callIds).toEqual(["1", "2"]);
   });
 
   it("computes pctOfBash relative to the Bash tool's own total, not the session", () => {

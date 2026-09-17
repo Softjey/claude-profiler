@@ -11,6 +11,8 @@ export interface BashGroupStat {
   unfinishedCount: number;
   /** Share of this Bash tool's own total time, not the whole session. */
   pctOfBash: number;
+  /** tool_use ids of the calls in this group, for drilling from the group into its calls. */
+  callIds: string[];
 }
 
 // Wrappers whose own name isn't the interesting part of the command; skipped
@@ -81,6 +83,7 @@ export function computeBashGroups(toolUses: ToolUseEvent[]): BashGroupStat[] {
       maxMs: durations.length > 0 ? (durations[durations.length - 1] as number) : 0,
       unfinishedCount: calls.filter((c) => c.unfinished).length,
       pctOfBash: bashTotalMs > 0 ? totalMs / bashTotalMs : 0,
+      callIds: calls.map((c) => c.id),
     });
   }
 
