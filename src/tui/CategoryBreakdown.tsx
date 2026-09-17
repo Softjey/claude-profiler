@@ -6,6 +6,7 @@ import type { UserGap } from "../metrics/time-split.js";
 import { formatMs, formatPercent, truncate } from "./format.js";
 
 const BAR_WIDTH = 20;
+const VISIBLE_ROWS = 15;
 
 function bar(fraction: number, color: string): React.JSX.Element {
   const filled = Math.round(Math.max(0, Math.min(1, fraction)) * BAR_WIDTH);
@@ -78,6 +79,15 @@ export function UserPromptList({ userGaps, selectedIndex }: UserPromptListProps)
     return <Text dimColor>No prompts follow a reply in this session.</Text>;
   }
 
+  // Same windowing as Timeline.tsx's TimelineScreen / ToolTable.tsx: keeps
+  // the highlighted prompt on screen instead of leaving that to the
+  // terminal's own scrollback once there are more prompts than fit.
+  const windowStart = Math.min(
+    Math.max(0, selectedIndex - Math.floor(VISIBLE_ROWS / 2)),
+    Math.max(0, userGaps.length - VISIBLE_ROWS),
+  );
+  const visibleGaps = userGaps.slice(windowStart, windowStart + VISIBLE_ROWS);
+
   return (
     <Box flexDirection="column">
       <Text dimColor>
@@ -91,8 +101,8 @@ export function UserPromptList({ userGaps, selectedIndex }: UserPromptListProps)
           <Text bold>Took</Text>
         </Box>
       </Box>
-      {userGaps.map((gap, i) => {
-        const selected = i === selectedIndex;
+      {visibleGaps.map((gap, i) => {
+        const selected = windowStart + i === selectedIndex;
         const color = selected ? "cyan" : "white";
         return (
           <Box key={`${i}-${gap.preview}`}>

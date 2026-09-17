@@ -2,6 +2,8 @@ import { Box, Text } from "ink";
 import type { ExactToolStat } from "../hooks/sidecar.js";
 import { formatMs, formatPercent } from "./format.js";
 
+const VISIBLE_ROWS = 15;
+
 export type SortKey = "totalMs" | "calls" | "medianMs" | "name";
 
 export const SORT_KEYS: SortKey[] = ["totalMs", "calls", "medianMs", "name"];
@@ -55,6 +57,15 @@ export interface ToolTableProps {
 
 export function ToolTable({ tools, selectedIndex, sortKey, filter }: ToolTableProps): React.JSX.Element {
   const rows = sortTools(tools, sortKey, filter);
+  // Same windowing as Timeline.tsx's TimelineScreen (see ToolDetail.tsx's
+  // identical comment): without it a session with more tools than fit on
+  // screen just prints every row and leaves the highlighted one to the
+  // terminal's own scrollback.
+  const windowStart = Math.min(
+    Math.max(0, selectedIndex - Math.floor(VISIBLE_ROWS / 2)),
+    Math.max(0, rows.length - VISIBLE_ROWS),
+  );
+  const visibleRows = rows.slice(windowStart, windowStart + VISIBLE_ROWS);
 
   return (
     <Box flexDirection="column">
@@ -65,53 +76,53 @@ export function ToolTable({ tools, selectedIndex, sortKey, filter }: ToolTablePr
         </Text>
       </Box>
       <Box>
-        <Box width={20}>
+        <Box width={34} marginRight={1} flexShrink={0}>
           <Text bold>Tool</Text>
         </Box>
-        <Box width={10}>
+        <Box width={10} flexShrink={0}>
           <Text bold>Total</Text>
         </Box>
-        <Box width={8}>
+        <Box width={8} flexShrink={0}>
           <Text bold>%</Text>
         </Box>
-        <Box width={7}>
+        <Box width={7} flexShrink={0}>
           <Text bold>Calls</Text>
         </Box>
-        <Box width={10}>
+        <Box width={10} flexShrink={0}>
           <Text bold>Median</Text>
         </Box>
-        <Box width={9}>
+        <Box width={9} flexShrink={0}>
           <Text bold>Outliers</Text>
         </Box>
       </Box>
       {rows.length === 0 ? (
         <Text dimColor>No tool calls match.</Text>
       ) : (
-        rows.map((tool, i) => {
-          const selected = i === selectedIndex;
+        visibleRows.map((tool, i) => {
+          const selected = windowStart + i === selectedIndex;
           const outlier = isOutlierDominated(tool);
           const color = selected ? "cyan" : "white";
           const marker = outlier ? "!" : selected ? ">" : " ";
           return (
             <Box key={tool.name}>
-              <Box width={20}>
-                <Text color={outlier ? "red" : color} bold={outlier}>
+              <Box width={34} marginRight={1} flexShrink={0}>
+                <Text color={outlier ? "red" : color} bold={outlier} wrap="truncate-end">
                   {marker} {tool.name}
                 </Text>
               </Box>
-              <Box width={10}>
+              <Box width={10} flexShrink={0}>
                 <Text color={color}>{formatMs(tool.totalMs)}</Text>
               </Box>
-              <Box width={8}>
+              <Box width={8} flexShrink={0}>
                 <Text color={color}>{formatPercent(tool.pctOfSession)}</Text>
               </Box>
-              <Box width={7}>
+              <Box width={7} flexShrink={0}>
                 <Text color={color}>{tool.calls}</Text>
               </Box>
-              <Box width={10}>
+              <Box width={10} flexShrink={0}>
                 <Text color={color}>{formatMs(tool.medianMs)}</Text>
               </Box>
-              <Box width={9}>
+              <Box width={9} flexShrink={0}>
                 <Text color={color}>{tool.outlierCount > 0 ? tool.outlierCount : "—"}</Text>
               </Box>
             </Box>
