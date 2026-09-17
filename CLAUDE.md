@@ -16,3 +16,18 @@ a PASS verdict to `progress/<id>.md`. Compiling is not passing — every accepta
 executed evidence. Do not commit a task that failed verification.
 
 Run `pnpm verify` (build + unit tests) before any commit, task or not.
+
+# Working in a task worktree
+
+If you are implementing a `plan.md` task in a worktree, your work ends at a verified
+commit **on your own branch**. Then stop and report.
+
+- **Do not merge, rebase onto, or otherwise touch `master`.** Sibling tasks are running in
+  parallel right now; branches are merged one at a time, in wave order, with `pnpm verify`
+  after each merge. A branch that merges itself defeats that.
+- **Do not push, and do not open a PR**, unless asked.
+- **Do not remove your own worktree or branch** — they are the deliverable until merged.
+- **Stay inside your task's Files list.** Reading a sibling's in-progress code is fine;
+  editing it is not. If you genuinely need a file outside that list, stop and ask instead
+  of reaching for it.
+
