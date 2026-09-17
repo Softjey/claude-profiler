@@ -380,23 +380,29 @@ next one.
 
 ### Merging a wave
 
-Agents leave their branches behind in the repo; merging is ordinary local git.
+Each task merges itself, at the end of its own run, through `scripts/merge-task.sh`.
+`master` lives in the main worktree and cannot be checked out in a linked one, so the script
+merges over there — and because siblings finish at unpredictable times, it serializes them:
+
+- one lock, so only one merge touches `master` at a time;
+- refuses any branch whose `progress/<id>.md` carries no PASS verdict;
+- `pnpm install && pnpm verify` **after** the merge, since a branch that was green alone can
+  still be red beside a sibling's merged work;
+- on a red verify, `git reset --hard` back to the exact pre-merge SHA — `master` is never
+  left broken, and the task branch survives for another attempt;
+- on a conflict, `git merge --abort` and refuse. A conflict means a task edited outside its
+  **Files** list; that is re-scoped, not resolved mid-merge.
+
+To watch or intervene:
 
 ```sh
 git worktree list                      # what ran where
-git log --oneline master..<branch>     # what that task actually did
+git log --oneline master..<branch>     # what a task actually did
 git diff --stat master...<branch>      # which files it touched
+cat progress/T*.md                     # every verdict so far
 ```
 
-For each branch, **in the wave-table order**, one at a time:
-
-```sh
-git merge --no-ff <branch>             # --no-ff keeps the task boundary readable
-pnpm install                           # only if the lockfile moved
-pnpm verify                            # green branch + green branch can still be red
-```
-
-Then, once the whole wave is in:
+Once the whole wave is in:
 
 ```sh
 git worktree remove <path>
@@ -405,15 +411,14 @@ git branch -d <branch>
 
 Rules:
 
-- **Verify after every single merge, not once at the end.** Two branches that each passed
-  alone can still break together — that is exactly what wave-order merging is meant to catch.
-- **Never merge a branch without a PASS in `progress/<id>.md`.** Unverified work does not
-  reach `master`.
-- **A red merge is reverted, not patched in place.** `git merge --abort`, or revert the merge,
-  and send the task back to its worktree. Fixing a sibling's code during a merge destroys
-  the isolation the worktrees bought.
+- **Merges go through the script, never by hand.** Every guarantee above is in the script;
+  a manual merge has none of them.
 - **Do not open the next wave until the current one is merged and green.** Wave N+1's tasks
   are written against merged interfaces.
+- **A task that cannot merge stays unmerged.** Sending it back to its worktree is the
+  correct outcome; patching it during a merge destroys the isolation the worktrees bought.
+- **A stale lock is the one manual intervention.** If a merge is refused for a lock nobody
+  holds, `rm -rf "$(git rev-parse --git-common-dir)/task-merge.lock"`.
 
 Expected conflicts, and the answer to each:
 
