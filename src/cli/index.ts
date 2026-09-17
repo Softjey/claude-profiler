@@ -11,6 +11,7 @@ import { App } from "../tui/App.js";
 // parallel on that file per plan.md's T15 step 3).
 import "../tui/Timeline.js";
 import "../tui/Context.js";
+import "../tui/Hooks.js";
 import { buildProfile, type Profile } from "../artifact/profile.js";
 import { writeProfileArtifact } from "../artifact/write.js";
 import { areHooksInstalled, installHooks } from "../hooks/install.js";
@@ -41,8 +42,11 @@ Options:
   --help           Show this help message and exit
 
 Other commands:
-  install-hooks    Install PreToolUse/PostToolUse hooks in ~/.claude/settings.json
-                   for exact tool timings
+  install-hooks    Subscribe to the hook events that make timings exact and
+                   separate approval wait, session idle and tool execution
+    --stream-timing  Also subscribe to MessageDisplay, for time-to-first-token.
+                     Fires once per streaming flush rather than once per turn,
+                     so it costs a hook process per flush (~35ms each).
   uninstall-hooks  Remove the hooks that install-hooks added
 `;
 
@@ -147,7 +151,14 @@ export async function run(
   stderr: (s: string) => void = (s) => process.stderr.write(s),
 ): Promise<number> {
   if (argv[0] === "install-hooks") {
-    const result = await installHooks({ stdout });
+    const rest = argv.slice(1);
+    const unknown = rest.filter((arg) => arg !== "--stream-timing");
+    if (unknown.length > 0) {
+      stderr(`Unknown option for install-hooks: ${unknown[0]}\n\n`);
+      printUsage(stderr);
+      return 1;
+    }
+    const result = await installHooks({ stdout, streamTiming: rest.includes("--stream-timing") });
     stdout(result.message);
     return result.status === "aborted" ? 1 : 0;
   }

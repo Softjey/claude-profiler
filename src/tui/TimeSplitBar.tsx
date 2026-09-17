@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import type { MergedTimeSplit } from "../hooks/sidecar.js";
+import type { PhaseSplit } from "../metrics/session-phases.js";
 import { formatMs, formatPercent } from "./format.js";
 
 const BAR_WIDTH = 30;
@@ -7,8 +8,15 @@ const BAR_WIDTH = 30;
 export const CATEGORY_KEYS = ["model", "tools", "you", "unaccounted"] as const;
 export type Category = (typeof CATEGORY_KEYS)[number];
 
+/**
+ * `idle` is deliberately outside `Category`: it is not drillable, because
+ * there is nothing underneath it but "the session was closed". Keeping it out
+ * also leaves the ←→ category cycle exactly four stops long.
+ */
+type SegmentKey = Category | "idle";
+
 interface Segment {
-  key: Category;
+  key: SegmentKey;
   label: string;
   ms: number;
   color: string;
@@ -28,21 +36,33 @@ export interface TimeSplitBarProps {
   timeline: MergedTimeSplit;
   /** Highlights one row and marks it with `>`, the way `ToolTable` marks its selected row (omit for no selection). */
   activeCategory?: Category;
+  /**
+   * When a hook sidecar named a resume, the same span with session-idle time
+   * carved out of "You". Passing it adds an Idle row and reports the corrected
+   * "You" instead of the derived one — a resumed session otherwise shows days
+   * of closed-laptop time as though a person had been thinking (see
+   * session-phases.ts).
+   */
+  phases?: PhaseSplit | null;
 }
 
 /**
  * The headline Model / Tools+approvals / You / unaccounted split (F2, D10),
- * always shown as percentages of the span so the four rows sum to 100%
- * regardless of rounding on any individual bar. Each row is drillable: the
+ * always shown as percentages of the span so the rows sum to 100% regardless
+ * of rounding on any individual bar. Each row but Idle is drillable: the
  * caller renders a breakdown table for whichever `activeCategory` it tracks.
  */
-export function TimeSplitBar({ timeline, activeCategory }: TimeSplitBarProps): React.JSX.Element {
-  const { modelMs, toolsMs, userMs, unaccountedMs, spanMs } = timeline;
+export function TimeSplitBar({ timeline, activeCategory, phases }: TimeSplitBarProps): React.JSX.Element {
+  const { modelMs, toolsMs, spanMs } = timeline;
+  const corrected = phases ?? null;
+  const userMs = corrected ? corrected.userMs : timeline.userMs;
+  const unaccountedMs = corrected ? corrected.unaccountedMs : timeline.unaccountedMs;
 
   const segments: Segment[] = [
     { key: "model", label: "Model", ms: modelMs, color: "cyan" },
     { key: "tools", label: "Tools", ms: toolsMs, color: "yellow" },
     { key: "you", label: "You", ms: userMs, color: "green" },
+    ...(corrected ? [{ key: "idle" as const, label: "Idle", ms: corrected.idleMs, color: "magenta" }] : []),
     { key: "unaccounted", label: "Unaccounted", ms: unaccountedMs, color: "gray" },
   ];
 
@@ -66,6 +86,15 @@ export function TimeSplitBar({ timeline, activeCategory }: TimeSplitBarProps): R
           </Box>
         );
       })}
+      {corrected && corrected.reclaimedFromUserMs > 0 ? (
+        <Box marginTop={1}>
+          <Text color="magenta">
+            Idle: {formatMs(corrected.reclaimedFromUserMs)} moved out of You — this transcript was
+            resumed {corrected.phases.length === 1 ? "once" : `${corrected.phases.length} times`}, and the
+            time between runs was never someone thinking.
+          </Text>
+        </Box>
+      ) : null}
     </Box>
   );
 }

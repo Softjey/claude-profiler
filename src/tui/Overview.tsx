@@ -99,7 +99,7 @@ export function OverviewScreen({ profile, nav }: ScreenProps): React.JSX.Element
   return (
     <Box flexDirection="column">
       <Box marginBottom={1}>
-        <TimeSplitBar timeline={profile.timeline} activeCategory={category} />
+        <TimeSplitBar timeline={profile.timeline} activeCategory={category} phases={profile.phases} />
       </Box>
       {category === "tools" ? (
         <ToolTable tools={profile.tools} selectedIndex={selectedIndex} sortKey={sortKey} filter={filter} active={inDetail} />
