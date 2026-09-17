@@ -78,7 +78,7 @@ export interface ModelRequest {
   cause: RequestCause;
   suspect: SuspectReason | null;
   preview: string;
-  /** The same text as `preview`, in full, never truncated, for the request detail screen. */
+  /** The same text as `preview`, capped much higher, for the request detail screen. */
   full: string;
 }
 

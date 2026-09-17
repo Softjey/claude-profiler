@@ -10,9 +10,9 @@ export interface PromptDetailScreenProps extends ScreenProps {
 }
 
 /**
- * One prompt's own drill-down (D-follow-up to the You list): the full,
- * untruncated prompt text (`gap.full`, see build-model.ts) instead of the
- * list's short single-line cut, plus how long it took to write.
+ * One prompt's own drill-down (D-follow-up to the You list): the prompt text
+ * up to DETAIL_FULL_MAX_CHARS (`gap.full`, see build-model.ts) instead of the
+ * list's much shorter single-line cut, plus how long it took to write.
  */
 export function PromptDetailScreen({ gap, index, total }: PromptDetailScreenProps): React.JSX.Element {
   return (

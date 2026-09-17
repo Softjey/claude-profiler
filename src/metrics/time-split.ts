@@ -10,7 +10,7 @@ import {
 export interface UserGap {
   /** The prompt this gap ends with, as a truncated single-line preview. */
   preview: string;
-  /** The same prompt in full, never truncated, for the prompt detail screen. */
+  /** The same prompt, capped much higher than `preview`, for the prompt detail screen. */
   full: string;
   gapMs: number;
 }

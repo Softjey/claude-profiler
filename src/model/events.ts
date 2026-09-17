@@ -53,7 +53,7 @@ export interface AssistantEvent {
   errorKind: string | undefined;
   /** First line of the record's own thinking/text, for the request drill-down. */
   preview: string;
-  /** The record's own thinking/text in full, never truncated, for the request detail screen. */
+  /** The record's own thinking/text, capped much higher than `preview`, for the request detail screen. */
   full: string;
 }
 
@@ -64,7 +64,7 @@ export interface UserPromptEvent {
   turnIndex: number;
   /** The prompt's own text as a truncated single-line preview, never the full (possibly huge) prompt. */
   preview: string;
-  /** The prompt's own text in full, never truncated, for the prompt detail screen. */
+  /** The prompt's own text, capped much higher than `preview`, for the prompt detail screen. */
   full: string;
 }
 

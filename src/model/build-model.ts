@@ -12,6 +12,14 @@ import type { BlockKind, EventModel, ModelEvent, ToolUseEvent } from "./events.j
 const PROMPT_PREVIEW_MAX_CHARS = 200;
 /** Shorter than a prompt preview: this only has to label a row in the request list. */
 const REPLY_PREVIEW_MAX_CHARS = 120;
+/**
+ * The cap for the detail screens' "full" text — large enough that a genuine
+ * prompt or a long thinking block reads in full, but not so large that a
+ * person pasting a whole file or a runaway thinking trace turns the detail
+ * screen into an unreadable, multi-thousand-line wall (same trade-off as
+ * tool-stats.ts's INPUT_PREVIEW_MAX_CHARS).
+ */
+const DETAIL_FULL_MAX_CHARS = 4000;
 
 function isToolResultBlock(block: ContentBlock): block is ToolResultBlock {
   return block.type === "tool_result";
@@ -47,7 +55,7 @@ function collapseBlockKinds(kinds: BlockKind[]): BlockKind {
   return "other";
 }
 
-/** What the model itself wrote in this record, whitespace-collapsed to one line but never truncated. */
+/** What the model itself wrote in this record, whitespace-collapsed to one line and capped at DETAIL_FULL_MAX_CHARS. */
 function extractReplyFull(content: ContentBlock[] | undefined): string {
   if (!Array.isArray(content)) return "";
   const parts: string[] = [];
@@ -55,7 +63,8 @@ function extractReplyFull(content: ContentBlock[] | undefined): string {
     if (isTextBlock(block)) parts.push(block.text ?? "");
     else if (isThinkingBlock(block)) parts.push(block.thinking ?? "");
   }
-  return parts.join(" ").replace(/\s+/g, " ").trim();
+  const collapsed = parts.join(" ").replace(/\s+/g, " ").trim();
+  return collapsed.length > DETAIL_FULL_MAX_CHARS ? collapsed.slice(0, DETAIL_FULL_MAX_CHARS) : collapsed;
 }
 
 /** A one-line preview of what the model itself wrote in this record. */
@@ -64,12 +73,12 @@ function extractReplyPreview(full: string): string {
 }
 
 /**
- * A single-line, length-capped preview of what the user typed (D-follow-up:
- * the You drill-down needs the prompt text itself, not just its timing).
- * `content` is either a plain string or a content-block array across the CC
- * versions in the wild (same leniency as everywhere else in this file); only
- * text blocks contribute, since tool_result/image blocks carry nothing a
- * person wrote themselves.
+ * The prompt's own text, whitespace-collapsed to one line and capped at
+ * DETAIL_FULL_MAX_CHARS (D-follow-up: the You drill-down needs the prompt
+ * text itself, not just its timing). `content` is either a plain string or a
+ * content-block array across the CC versions in the wild (same leniency as
+ * everywhere else in this file); only text blocks contribute, since
+ * tool_result/image blocks carry nothing a person wrote themselves.
  */
 function extractPromptFull(content: string | ContentBlock[] | undefined): string {
   const raw =
@@ -82,7 +91,8 @@ function extractPromptFull(content: string | ContentBlock[] | undefined): string
             .join(" ")
         : "";
 
-  return raw.replace(/\s+/g, " ").trim();
+  const collapsed = raw.replace(/\s+/g, " ").trim();
+  return collapsed.length > DETAIL_FULL_MAX_CHARS ? collapsed.slice(0, DETAIL_FULL_MAX_CHARS) : collapsed;
 }
 
 function extractPromptPreview(full: string): string {

@@ -146,7 +146,7 @@ const PROMPT_TOOK_WIDTH = 9;
  * you to write it (the gap between the previous reply ending and this
  * prompt landing) — not a bucketed histogram, so a specific slow reply can
  * actually be identified rather than just counted. `⏎` on a row pushes
- * PromptDetail, which shows the prompt's untruncated text (Overview.tsx).
+ * PromptDetail, which shows the prompt's text up to DETAIL_FULL_MAX_CHARS (Overview.tsx).
  */
 export function UserPromptList({ userGaps, selectedIndex, active }: UserPromptListProps): React.JSX.Element {
   if (userGaps.length === 0) {
