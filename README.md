@@ -5,8 +5,9 @@ Profile a Claude Code session transcript: see where the time went, per tool and 
 A Claude Code session can run for hours and cost tens of dollars, and there's no built-in
 way to find out where that time actually went. `claude-profiler` reads the transcript
 `.jsonl` files Claude Code already writes to `~/.claude/projects/`, and turns one session
-into a terminal UI: a Model / Tools+approvals / You time split, a sortable tool table,
-per-call drill-down, subagent rollups, a timeline, and context growth over the session.
+into a terminal UI: a Model / Tools+approvals / You time split, a measured breakdown of the
+model's own time with a per-request drill-down, a sortable tool table, per-call drill-down,
+subagent rollups, a timeline, and context growth over the session.
 
 It answers one question — **where did the time go** — and nothing else. It presents
 measurements, not advice.
@@ -61,6 +62,38 @@ Task          4       9m 12s      1m 58s    1
 ↑↓ select · ⏎ drill in · Esc back · ⇥ tabs · q quit
 ```
 
+### Example: inside the Model bucket
+
+`⏎` on the Model row opens its own breakdown. Claude Code writes one transcript record per
+content block, each with its own timestamp, so this is measured wall-clock per kind of
+output — not `modelMs` split by token share:
+
+```
+measured from per-block record timestamps · 83 requests, 68 written as more than one block
+> Writing text (1st block)        ██████████████░░░░░░ 71.7% (4h50m, 3 slices)
+  Writing text (later)            ████░░░░░░░░░░░░░░░░ 18.3% (1h14m, 47 slices)
+  Thinking (1st block)            █░░░░░░░░░░░░░░░░░░░ 6.4% (25m56s, 69 slices)
+  Emitting tool calls (later)     █░░░░░░░░░░░░░░░░░░░ 3.4% (13m36s, 73 slices)
+  Emitting tool calls (1st block) ░░░░░░░░░░░░░░░░░░░░ 0.3% (1m06s, 11 slices)
+
+5h50m (86.4%) of this is probably not the model working:
+  3 requests that ran for minutes below 5.3 tok/s — a slept machine or a dropped stream — 5h38m
+  1 failed API call CC wrote itself (server_error) — 11m51s
+  counted in the rows above, not on top of them: 54m58s is left that looks like generation
+```
+
+A further `⏎` opens one row per API request, sortable by total time, first block, throughput
+or context size — and `←→` from there shows the same total grouped by what handed control
+back to the model, by model and by thinking effort:
+
+```
+  #   Started           Total    1st blk  Out    tok/s   Ctx     Cause
+> 56  2026-08-16 17:38  4h38m    4h38m    1.1k   0.1     268.6k  after Artifact    ⚠ stalled
+  70  2026-08-20 17:55  35m27s   40.3s    3.3k   1.5     302.5k  after Bash        ⚠ stalled
+  54  2026-08-16 12:56  5m04s    36.3s    19.7k  64.8    248.3k  after Bash
+  26  2026-08-16 12:07  2m14s    58.6s    5.7k   42.4    69.7k   after your prompt
+```
+
 ## Keybindings
 
 | Key | Action |
@@ -69,7 +102,8 @@ Task          4       9m 12s      1m 58s    1
 | `↑` `↓` | Move the selection in a list |
 | `⏎` (Enter) | Drill into the selected row (a tool → its calls, a call → its detail, a `Task` row → the subagent rollup) |
 | `Esc` / `⌫` (Backspace) | Go back one level |
-| `s` | Cycle the tool table's sort order (Overview) |
+| `s` | Cycle the sort order (the tool table on Overview, the request list under Model) |
+| `←` `→` | Switch view inside a drilled-into screen (Model's requests/rollups, Bash's calls/by-command) |
 | `/` | Filter (Overview) |
 | `q` | Quit |
 
@@ -81,6 +115,22 @@ and end timestamps. A tool that shows as taking 18 minutes may be 20 fast calls 
 call where you stepped away from the keyboard. Every tool duration in this tool is
 therefore labelled **"tool + approvals"**, never "tool time", and every sum is shown next
 to its median and its outlier count so a slow total doesn't hide one outlier.
+
+**The model breakdown is measured, but a request's first block is a bundle.** Each row is
+real wall-clock: Claude Code writes a record per content block, so the gap between two
+records is the time that block took. The *first* record of a request is different — its
+slice also covers queueing the call and reading the prompt back in, and the transcript
+timestamps the block's end rather than its first token, so those three cannot be separated.
+That is why the first block is its own row rather than folded into the rest. Exact
+prefill/decode numbers do exist in Claude Code's OpenTelemetry `api_request` event
+(`ttft_ms`, `duration_ms`), which the profiler does not yet consume — see
+[`docs/otel-model-timing-findings.md`](docs/otel-model-timing-findings.md).
+
+**"Stalled" is a stated heuristic, not a transcript fact.** A request that ran for over a
+minute below a tenth of the session's own median throughput is flagged as probably waiting
+rather than generating. Failed API calls are not a heuristic — Claude Code writes those
+records itself and names the failure. Both are reported as a *subset* of the model time
+above them, never subtracted twice, so the headline split still adds up.
 
 **Cost appears only when the session has a `cost-state` record.** Claude Code started
 writing that record in **2.1.260**; sessions from before that version, or sessions that
