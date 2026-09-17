@@ -17,7 +17,7 @@ import { areHooksInstalled, installHooks } from "../hooks/install.js";
 import { uninstallHooks } from "../hooks/uninstall.js";
 
 export interface CliArgs {
-  sessionId: string | undefined;
+  query: string | undefined;
   json: boolean;
   out: string | undefined;
   version: boolean;
@@ -26,12 +26,12 @@ export interface CliArgs {
 
 export class CliArgError extends Error {}
 
-const USAGE = `Usage: claude-profiler <sessionId> [options]
+const USAGE = `Usage: claude-profiler <query> [options]
 
 Profile a Claude Code session transcript and show where the time went.
 
 Arguments:
-  sessionId        Session id (full uuid, unique prefix, or an agent-* name)
+  query            Session id (full uuid, unique prefix, or an agent-* name)
                    or a chat title to search for
 
 Options:
@@ -48,7 +48,7 @@ Other commands:
 
 export function parseArgs(argv: string[]): CliArgs {
   const args: CliArgs = {
-    sessionId: undefined,
+    query: undefined,
     json: false,
     out: undefined,
     version: false,
@@ -79,10 +79,10 @@ export function parseArgs(argv: string[]): CliArgs {
         if (arg?.startsWith("-")) {
           throw new CliArgError(`Unknown option: ${arg}`);
         }
-        if (args.sessionId !== undefined) {
+        if (args.query !== undefined) {
           throw new CliArgError(`Unexpected argument: ${arg}`);
         }
-        args.sessionId = arg;
+        args.query = arg;
     }
   }
 
@@ -180,13 +180,13 @@ export async function run(
     return 0;
   }
 
-  if (args.sessionId === undefined) {
-    stderr("Missing required argument: sessionId\n\n");
+  if (args.query === undefined) {
+    stderr("Missing required argument: query\n\n");
     printUsage(stderr);
     return 1;
   }
 
-  const resolved = await resolveSessionWithSpinner(args.sessionId);
+  const resolved = await resolveSessionWithSpinner(args.query);
 
   if (resolved.status === "not-found") {
     stderr(
@@ -201,7 +201,7 @@ export async function run(
   if (resolved.status === "ambiguous") {
     if (!process.stdin.isTTY) {
       stderr(
-        `claude-profiler: "${args.sessionId}" matches ${resolved.candidates.length} sessions; ` +
+        `claude-profiler: "${args.query}" matches ${resolved.candidates.length} sessions; ` +
           "run in an interactive terminal to pick one, or pass a longer id/prefix.\n",
       );
       for (const candidate of resolved.candidates) {
