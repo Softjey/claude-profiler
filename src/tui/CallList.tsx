@@ -7,13 +7,16 @@ import { formatDateTime, formatMs, summarizeInput, truncate } from "./format.js"
 import { callDetailScreen } from "./CallDetail.js";
 import { subagentDetailScreen } from "./SubagentDetail.js";
 
+// Each column carries its own marginRight below, so these widths only need
+// to fit their content — the gap between columns comes from the margin, not
+// from padding inside the width.
 const TURN_WIDTH = 4;
-const STARTED_WIDTH = 17;
+const STARTED_WIDTH = 16;
 const DURATION_WIDTH = 10;
-// Widened at the expense of Turn/Started (T-input-column, 34 -> 40): the
+// Widened at the expense of Turn/Started (T-input-column, 34 -> 39): the
 // previous width left almost no room once summarizeInput() stopped hiding
 // JSON punctuation behind truncation.
-const NAME_WIDTH = 40;
+const NAME_WIDTH = 39;
 const VISIBLE_ROWS = 15;
 
 function sortCallsByDuration(calls: ToolCall[]): ToolCall[] {
@@ -80,13 +83,13 @@ export function CallList({ calls: rawCalls, tool, profile, nav, emptyMessage }: 
   return (
     <Box flexDirection="column">
       <Box>
-        <Box width={TURN_WIDTH}>
+        <Box width={TURN_WIDTH} marginRight={2}>
           <Text bold>Turn</Text>
         </Box>
-        <Box width={STARTED_WIDTH}>
+        <Box width={STARTED_WIDTH} marginRight={2}>
           <Text bold>Started</Text>
         </Box>
-        <Box width={DURATION_WIDTH}>
+        <Box width={DURATION_WIDTH} marginRight={2}>
           <Text bold>Duration</Text>
         </Box>
         <Box width={NAME_WIDTH}>
@@ -102,13 +105,13 @@ export function CallList({ calls: rawCalls, tool, profile, nav, emptyMessage }: 
           const subagent = subagentByCallId.get(call.id);
           return (
             <Box key={call.id}>
-              <Box width={TURN_WIDTH}>
+              <Box width={TURN_WIDTH} marginRight={2}>
                 <Text color={color}>{call.turnIndex}</Text>
               </Box>
-              <Box width={STARTED_WIDTH}>
+              <Box width={STARTED_WIDTH} marginRight={2}>
                 <Text color={color}>{formatDateTime(call.startedAt)}</Text>
               </Box>
-              <Box width={DURATION_WIDTH}>
+              <Box width={DURATION_WIDTH} marginRight={2}>
                 <Text color={color}>
                   {call.durationMs === null ? "unfinished" : formatMs(call.durationMs)}
                 </Text>

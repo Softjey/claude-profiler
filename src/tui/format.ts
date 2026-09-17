@@ -35,7 +35,12 @@ export function truncate(text: string, maxChars: number): string {
 }
 
 function stringifyInputValue(value: unknown): string {
-  return typeof value === "string" ? value : JSON.stringify(value);
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  // A multi-line command (e.g. Bash's `python3 -c "..."`) carries real
+  // newlines once JSON.parse unescapes it. summarizeInput's contract is one
+  // line per call, so collapse all whitespace runs — otherwise Ink renders
+  // the embedded newlines as extra rows and wrecks the column grid.
+  return text.replace(/\s+/g, " ").trim();
 }
 
 /**

@@ -77,4 +77,10 @@ describe("summarizeInput", () => {
   it("falls back to the raw text when JSON parsing fails", () => {
     expect(summarizeInput('{"command":"trunc')).toBe('{"command":"trunc');
   });
+
+  it("collapses embedded newlines into a single line", () => {
+    expect(summarizeInput('{"command":"python3 -c \\"\\nimport json\\nv = json.load()\\""}')).toBe(
+      'python3 -c " import json v = json.load()"',
+    );
+  });
 });
