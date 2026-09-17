@@ -2,7 +2,8 @@ import { render } from "ink";
 import { createElement } from "react";
 import { resolveSession, type SessionListing } from "./resolve-session.js";
 import { SessionPicker } from "../tui/SessionPicker.js";
-import { buildProfile } from "../artifact/profile.js";
+import { App } from "../tui/App.js";
+import { buildProfile, type Profile } from "../artifact/profile.js";
 import { writeProfileArtifact } from "../artifact/write.js";
 
 export interface CliArgs {
@@ -81,6 +82,11 @@ export function printVersion(
   write: (s: string) => void = (s) => process.stdout.write(s),
 ): void {
   write(`${version}\n`);
+}
+
+async function runTui(profile: Profile): Promise<void> {
+  const { waitUntilExit } = render(createElement(App, { profile }));
+  await waitUntilExit();
 }
 
 async function pickSession(candidates: SessionListing[]): Promise<SessionListing | undefined> {
@@ -181,9 +187,14 @@ export async function run(
     return 0;
   }
 
-  stdout(
-    `claude-profiler: wrote profile artifact to ${artifactPath}\n` +
-      "the TUI is not implemented yet; pass --json to inspect the artifact.\n",
-  );
+  if (!process.stdin.isTTY) {
+    stdout(
+      `claude-profiler: wrote profile artifact to ${artifactPath}\n` +
+        "not an interactive terminal; pass --json to inspect the artifact.\n",
+    );
+    return 0;
+  }
+
+  await runTui(profile);
   return 0;
 }
