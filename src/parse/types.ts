@@ -130,13 +130,28 @@ export interface FileHistoryDeltaRecord extends TranscriptRecordBase {
   type: "file-history-delta";
 }
 
+export interface ModelUsageEntry {
+  inputTokens?: number;
+  outputTokens?: number;
+  thinkingTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheCreationInputTokens?: number;
+  webSearchRequests?: number;
+  costUSD?: number;
+}
+
 export interface CostStateRecord extends TranscriptRecordBase {
   type: "cost-state";
-  totalCostUsd?: number;
-  totalDurationMs?: number;
-  totalApiDurationMs?: number;
+  totalCostUSD?: number;
+  totalAPIDuration?: number;
+  totalAPIDurationWithoutRetries?: number;
+  totalToolDuration?: number;
   totalLinesAdded?: number;
   totalLinesRemoved?: number;
+  totalDuration?: number;
+  startTime?: number;
+  modelUsage?: Record<string, ModelUsageEntry>;
+  hasUnknownModelCost?: boolean;
 }
 
 export interface QueueOperationRecord extends TranscriptRecordBase {
