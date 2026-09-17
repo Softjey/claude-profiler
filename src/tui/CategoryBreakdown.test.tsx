@@ -1,13 +1,29 @@
 import { render } from "ink-testing-library";
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
-import { ModelSplitTable, UnaccountedBreakdown, UserPromptList } from "./CategoryBreakdown.js";
+import { ModelBreakdownTable, UnaccountedBreakdown, UserPromptList } from "./CategoryBreakdown.js";
 import type { MergedTimeSplit } from "../hooks/sidecar.js";
-import type { TokenBucket } from "../metrics/tokens.js";
+import type { ModelBreakdown } from "../metrics/model-breakdown.js";
 import type { UserGap } from "../metrics/time-split.js";
 
-function makeBucket(overrides: Partial<TokenBucket> = {}): TokenBucket {
-  return { input: 0, output: 0, thinking: 0, cacheRead: 0, cacheCreate1h: 0, cacheCreate5m: 0, ...overrides };
+function makeBreakdown(overrides: Partial<ModelBreakdown> = {}): ModelBreakdown {
+  return {
+    totalMs: 4000,
+    phases: [
+      { kind: "thinking", position: "first", ms: 3000, pctOfModel: 0.75, slices: 3 },
+      { kind: "text", position: "continuation", ms: 1000, pctOfModel: 0.25, slices: 2 },
+    ],
+    requests: [],
+    suspect: [],
+    suspectMs: 0,
+    stallThresholdTokensPerSec: 4.2,
+    byCause: [],
+    byModel: [],
+    byEffort: [],
+    coverage: { requestsWithBlockSplit: 2, totalRequests: 3 },
+    precision: "measured",
+    ...overrides,
+  };
 }
 
 function makeTimeline(overrides: Partial<MergedTimeSplit> = {}): MergedTimeSplit {
@@ -24,31 +40,65 @@ function makeTimeline(overrides: Partial<MergedTimeSplit> = {}): MergedTimeSplit
   };
 }
 
-describe("ModelSplitTable", () => {
-  it("shows thinking and generation as a share of modelMs", () => {
+describe("ModelBreakdownTable", () => {
+  it("labels each phase by what the model was doing and when in the request", () => {
     const { lastFrame } = render(
-      createElement(ModelSplitTable, {
-        modelMs: 4000,
-        tokens: makeBucket({ output: 1000, thinking: 500 }),
+      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), selectedIndex: 0, active: true }),
+    );
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("Thinking (1st block)");
+    expect(frame).toContain("Writing text (later)");
+    expect(frame).toContain("75.0%");
+    expect(frame).toContain("measured from per-block record timestamps");
+  });
+
+  it("says how many requests the split actually rests on", () => {
+    const { lastFrame } = render(
+      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), selectedIndex: 0, active: true }),
+    );
+    expect(lastFrame() ?? "").toContain("3 requests, 2 written as more than one block");
+  });
+
+  it("marks the selected row", () => {
+    const { lastFrame } = render(
+      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), selectedIndex: 1, active: true }),
+    );
+    const lines = (lastFrame() ?? "").split("\n");
+    expect(lines.find((l) => l.includes("Writing text"))).toContain(">");
+    expect(lines.find((l) => l.includes("Thinking"))).not.toContain(">");
+  });
+
+  it("calls out the time in the bucket that is not the model working", () => {
+    const { lastFrame } = render(
+      createElement(ModelBreakdownTable, {
+        breakdown: makeBreakdown({
+          suspectMs: 3000,
+          suspect: [
+            { reason: "stalled", ms: 2000, requests: 2, pctOfModel: 0.5, kinds: [] },
+            { reason: "api_error", ms: 1000, requests: 1, pctOfModel: 0.25, kinds: ["server_error"] },
+          ],
+        }),
         selectedIndex: 0,
         active: true,
       }),
     );
     const frame = lastFrame() ?? "";
-    expect(frame).toContain("Thinking");
-    expect(frame).toContain("Generation");
-    expect(frame).toContain("50.0%"); // 500 of 1000 total tokens -> half of modelMs
+    expect(frame).toContain("probably not the model working");
+    expect(frame).toContain("server_error");
+    expect(frame).toContain("4.2 tok/s");
+    // The leftover is stated so the rows above are not mistaken for pure generation.
+    expect(frame).toContain("is left that looks");
   });
 
-  it("marks the selected row", () => {
+  it("says so plainly when there is no model time at all", () => {
     const { lastFrame } = render(
-      createElement(ModelSplitTable, { modelMs: 4000, tokens: makeBucket({ output: 1000 }), selectedIndex: 1, active: true }),
+      createElement(ModelBreakdownTable, {
+        breakdown: makeBreakdown({ totalMs: 0, phases: [] }),
+        selectedIndex: 0,
+        active: true,
+      }),
     );
-    const frame = lastFrame() ?? "";
-    const generationLine = frame.split("\n").find((l) => l.includes("Generation"));
-    const thinkingLine = frame.split("\n").find((l) => l.includes("Thinking"));
-    expect(generationLine).toContain(">");
-    expect(thinkingLine).not.toContain(">");
+    expect(lastFrame() ?? "").toContain("No model time recorded");
   });
 });
 

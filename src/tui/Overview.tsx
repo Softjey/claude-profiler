@@ -3,12 +3,12 @@ import { useState } from "react";
 import type { ScreenProps } from "./shell.js";
 import { registerTab } from "./shell.js";
 import { CATEGORY_KEYS, TimeSplitBar, type Category } from "./TimeSplitBar.js";
-import { ModelSplitTable, UnaccountedBreakdown, UserPromptList } from "./CategoryBreakdown.js";
+import { ModelBreakdownTable, UnaccountedBreakdown, UserPromptList } from "./CategoryBreakdown.js";
+import { modelRequestsScreen } from "./ModelRequests.js";
 import { ToolTable, SORT_KEYS, sortTools, type SortKey } from "./ToolTable.js";
 import { toolDetailScreen } from "./ToolDetail.js";
 import { promptDetailScreen } from "./PromptDetail.js";
 
-const MODEL_SPLIT_ROW_COUNT = 2; // Thinking, Generation — see CategoryBreakdown's ModelSplitTable
 
 type Focus = "categories" | "detail";
 
@@ -66,7 +66,8 @@ export function OverviewScreen({ profile, nav }: ScreenProps): React.JSX.Element
       } else if (category === "tools") {
         nav.setSelection(rows.length === 0 ? 0 : (selectedIndex + delta + rows.length) % rows.length);
       } else if (category === "model") {
-        setModelSelection((s) => (s + delta + MODEL_SPLIT_ROW_COUNT) % MODEL_SPLIT_ROW_COUNT);
+        const phaseCount = profile.modelBreakdown.phases.length;
+        setModelSelection((s) => (phaseCount === 0 ? 0 : (s + delta + phaseCount) % phaseCount));
       } else if (category === "you") {
         const gapCount = profile.timeline.userGaps.length;
         setYouSelection((s) => (gapCount === 0 ? 0 : (s + delta + gapCount) % gapCount));
@@ -89,6 +90,11 @@ export function OverviewScreen({ profile, nav }: ScreenProps): React.JSX.Element
       } else if (category === "you") {
         const gap = profile.timeline.userGaps[youSelection];
         if (gap) nav.push(promptDetailScreen(gap, youSelection, profile.timeline.userGaps.length));
+      } else if (category === "model") {
+        // Any phase row opens the same screen: the phases say what the time
+        // went on, the request list says which calls it went on, and only the
+        // second one can be acted on.
+        nav.push(modelRequestsScreen(profile.modelBreakdown));
       }
     } else if (key.escape && focus === "detail") {
       setFocus("categories");
@@ -104,12 +110,7 @@ export function OverviewScreen({ profile, nav }: ScreenProps): React.JSX.Element
       {category === "tools" ? (
         <ToolTable tools={profile.tools} selectedIndex={selectedIndex} sortKey={sortKey} filter={filter} active={inDetail} />
       ) : category === "model" ? (
-        <ModelSplitTable
-          modelMs={profile.timeline.modelMs}
-          tokens={profile.tokens.totals}
-          selectedIndex={modelSelection}
-          active={inDetail}
-        />
+        <ModelBreakdownTable breakdown={profile.modelBreakdown} selectedIndex={modelSelection} active={inDetail} />
       ) : category === "you" ? (
         <UserPromptList userGaps={profile.timeline.userGaps} selectedIndex={youSelection} active={inDetail} />
       ) : (
@@ -125,7 +126,9 @@ export function OverviewScreen({ profile, nav }: ScreenProps): React.JSX.Element
                 ? "↑↓ select · ⏎ drill in · Esc back · ←→ tabs · s sort · / filter · q quit"
                 : category === "you"
                   ? "↑↓ select · ⏎ prompt detail · Esc back · ←→ tabs · q quit"
-                  : "↑↓ select · Esc back · ←→ tabs · q quit"}
+                  : category === "model"
+                    ? "↑↓ select · ⏎ requests · Esc back · ←→ tabs · q quit"
+                    : "↑↓ select · Esc back · ←→ tabs · q quit"}
         </Text>
       </Box>
     </Box>

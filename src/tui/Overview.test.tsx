@@ -59,6 +59,44 @@ function makeProfile(overrides: Partial<Profile> = {}): Profile {
       precision: "derived",
       userGaps: [],
     },
+    modelBreakdown: {
+      totalMs: 3000,
+      phases: [
+        { kind: "thinking", position: "first", ms: 2000, pctOfModel: 2 / 3, slices: 2 },
+        { kind: "text", position: "continuation", ms: 1000, pctOfModel: 1 / 3, slices: 1 },
+      ],
+      requests: [
+        {
+          key: "req_1",
+          requestId: "req_1",
+          index: 0,
+          turnIndex: 0,
+          at: "2026-01-01T00:00:01.000Z",
+          model: "claude-sonnet-5",
+          effort: "high",
+          stopReason: "end_turn",
+          totalMs: 3000,
+          firstBlockMs: 2000,
+          continuationMs: 1000,
+          outputTokens: 900,
+          thinkingTokens: 300,
+          contextTokens: 50_000,
+          tokensPerSec: 300,
+          blocks: ["thinking", "text"],
+          cause: { kind: "prompt", name: null },
+          suspect: null,
+          preview: "a short reply",
+        },
+      ],
+      suspect: [],
+      suspectMs: 0,
+      stallThresholdTokensPerSec: 1,
+      byCause: [{ key: "after your prompt", ms: 3000, requests: 1, pctOfModel: 1 }],
+      byModel: [{ key: "claude-sonnet-5", ms: 3000, requests: 1, pctOfModel: 1 }],
+      byEffort: [{ key: "high", ms: 3000, requests: 1, pctOfModel: 1 }],
+      coverage: { requestsWithBlockSplit: 1, totalRequests: 1 },
+      precision: "measured",
+    },
     tools: [makeTool({ name: "Bash" }), makeTool({ name: "Read", totalMs: 500, medianMs: 100 })],
     subagents: [],
     tokens: { byModel: {}, totals: { input: 0, output: 0, thinking: 0, cacheRead: 0, cacheCreate1h: 0, cacheCreate5m: 0 } },
@@ -83,11 +121,23 @@ function renderOverview(profile: Profile) {
 }
 
 describe("OverviewScreen", () => {
-  it("shows the model breakdown by default", () => {
+  it("shows the measured model breakdown by default", () => {
     const { lastFrame } = renderOverview(makeProfile());
     const frame = lastFrame() ?? "";
-    expect(frame).toContain("Thinking");
-    expect(frame).toContain("Generation");
+    expect(frame).toContain("Thinking (1st block)");
+    expect(frame).toContain("Writing text (later)");
+    expect(frame).toContain("measured from per-block record timestamps");
+  });
+
+  it("opens the request list from any phase row on Enter", async () => {
+    const { lastFrame, stdin } = renderOverview(makeProfile());
+    stdin.write("\r"); // into the Model breakdown
+    await tick();
+    stdin.write("\r"); // and on into the request list
+    await tick();
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("[Requests]");
+    expect(frame).toContain("tok/s");
   });
 
   it("shows the tool table after moving to the Tools category", async () => {
@@ -207,7 +257,7 @@ describe("OverviewScreen", () => {
     stdin.write("\r"); // into Model's breakdown
     await tick();
     const frame = lastFrame() ?? "";
-    expect(frame).toContain("Thinking");
-    expect(frame).toContain("Generation");
+    expect(frame).toContain("Thinking (1st block)");
+    expect(frame).toContain("Writing text (later)");
   });
 });

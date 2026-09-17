@@ -1,9 +1,9 @@
 import { Box, Text } from "ink";
 import type { MergedTimeSplit } from "../hooks/sidecar.js";
-import { computeModelSplit } from "../metrics/model-split.js";
-import type { TokenBucket } from "../metrics/tokens.js";
+import type { BlockKind } from "../model/events.js";
+import type { ModelBreakdown, PhasePosition } from "../metrics/model-breakdown.js";
 import type { UserGap } from "../metrics/time-split.js";
-import { formatMs, formatPercent, truncate } from "./format.js";
+import { formatCount, formatMs, formatPercent, truncate } from "./format.js";
 
 const BAR_WIDTH = 20;
 const VISIBLE_ROWS = 15;
@@ -18,47 +18,114 @@ function bar(fraction: number, color: string): React.JSX.Element {
   );
 }
 
-export interface ModelSplitTableProps {
-  modelMs: number;
-  tokens: TokenBucket;
+const KIND_LABELS: Record<BlockKind, string> = {
+  thinking: "Thinking",
+  text: "Writing text",
+  tool_use: "Emitting tool calls",
+  other: "Other",
+};
+
+const KIND_COLORS: Record<BlockKind, string> = {
+  thinking: "magenta",
+  text: "cyan",
+  tool_use: "yellow",
+  other: "white",
+};
+
+const POSITION_LABELS: Record<PhasePosition, string> = {
+  first: "1st block",
+  continuation: "later",
+};
+
+const PHASE_LABEL_WIDTH = 34;
+
+export interface ModelBreakdownTableProps {
+  breakdown: ModelBreakdown;
   selectedIndex: number;
   /** See ToolTableProps.active: only highlight once the cursor is in this table. */
   active: boolean;
 }
 
 /**
- * Model's own drill-down: thinking vs. generation, estimated from each
- * side's share of thinking/output tokens rather than measured — see
- * `computeModelSplit` for why a real wall-clock split isn't possible.
+ * Model's own drill-down. CC writes one record per content block, each with
+ * its own timestamp, so each row here is wall-clock that was actually spent
+ * on that kind of output — not `modelMs` apportioned by token share, which
+ * is what this replaces (model-breakdown.ts).
+ *
+ * A request's first block is kept as its own row rather than folded in with
+ * the rest: its slice also covers queueing the call and reading the prompt
+ * back in, and the transcript timestamps the block's end, so there is no
+ * honest way to separate the three.
  */
-export function ModelSplitTable({ modelMs, tokens, selectedIndex, active }: ModelSplitTableProps): React.JSX.Element {
-  const split = computeModelSplit(modelMs, tokens);
-  const rows = [
-    { label: "Thinking", ms: split.thinkingMs, tokens: split.thinkingTokens, color: "magenta" },
-    { label: "Generation", ms: split.generationMs, tokens: split.generationTokens, color: "cyan" },
-  ];
+export function ModelBreakdownTable({
+  breakdown,
+  selectedIndex,
+  active,
+}: ModelBreakdownTableProps): React.JSX.Element {
+  const { coverage, phases, suspectMs, totalMs } = breakdown;
+
+  if (phases.length === 0) {
+    return <Text dimColor>No model time recorded in this session.</Text>;
+  }
 
   return (
     <Box flexDirection="column">
-      <Text dimColor>estimated from each turn's share of thinking vs. output tokens, not measured</Text>
-      {rows.map((row, i) => {
-        const fraction = modelMs > 0 ? row.ms / modelMs : 0;
+      <Text dimColor>
+        measured from per-block record timestamps · {coverage.totalRequests} request
+        {coverage.totalRequests === 1 ? "" : "s"}, {coverage.requestsWithBlockSplit} written as more than one block
+      </Text>
+      {phases.map((phase, i) => {
         const selected = active && i === selectedIndex;
+        const label = `${KIND_LABELS[phase.kind]} (${POSITION_LABELS[phase.position]})`;
         return (
-          <Box key={row.label}>
-            <Box width={13}>
-              <Text bold={selected}>
-                {selected ? ">" : " "} {row.label}
+          <Box key={`${phase.position}:${phase.kind}`}>
+            <Box width={PHASE_LABEL_WIDTH} flexShrink={0}>
+              <Text bold={selected} wrap="truncate-end">
+                {selected ? ">" : " "} {label}
               </Text>
             </Box>
-            {bar(fraction, row.color)}
+            {bar(phase.pctOfModel, KIND_COLORS[phase.kind])}
             <Text>
               {" "}
-              {formatPercent(fraction)} ({formatMs(row.ms)}, {row.tokens.toLocaleString()} tok)
+              {formatPercent(phase.pctOfModel)} ({formatMs(phase.ms)}, {phase.slices} slice
+              {phase.slices === 1 ? "" : "s"})
             </Text>
           </Box>
         );
       })}
+      {suspectMs > 0 ? (
+        <Box marginTop={1} flexDirection="column">
+          <Text color="red">
+            {formatMs(suspectMs)} ({formatPercent(totalMs > 0 ? suspectMs / totalMs : 0)}) of this is probably not the
+            model working:
+          </Text>
+          {breakdown.suspect.map((entry) => (
+            <Text key={entry.reason} dimColor>
+              {"  "}
+              {entry.reason === "api_error"
+                ? `${entry.requests} failed API call${entry.requests === 1 ? "" : "s"} CC wrote itself` +
+                  (entry.kinds.length > 0 ? ` (${entry.kinds.join(", ")})` : "")
+                : `${entry.requests} request${entry.requests === 1 ? "" : "s"} that ran for minutes below ` +
+                  `${breakdown.stallThresholdTokensPerSec.toFixed(1)} tok/s — a slept machine or a dropped stream`}
+              {" — "}
+              {formatMs(entry.ms)}
+            </Text>
+          ))}
+          <Text dimColor>
+            {"  "}counted in the rows above, not on top of them: {formatMs(totalMs - suspectMs)} is left that looks
+            like generation
+          </Text>
+        </Box>
+      ) : null}
+      {breakdown.requests.length > 0 ? (
+        <Box marginTop={1}>
+          <Text dimColor>
+            slowest request: {formatMs(Math.max(...breakdown.requests.map((r) => r.totalMs)))} ·{" "}
+            {formatCount(breakdown.requests.reduce((sum, r) => sum + r.outputTokens, 0))} output tokens over all
+            requests
+          </Text>
+        </Box>
+      ) : null}
     </Box>
   );
 }
