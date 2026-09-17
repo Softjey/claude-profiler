@@ -66,13 +66,16 @@ export interface UserPromptListProps {
   selectedIndex: number;
 }
 
-const PROMPT_PREVIEW_WIDTH = 50;
+const PROMPT_INDEX_WIDTH = 5;
+const PROMPT_PREVIEW_WIDTH = 46;
+const PROMPT_TOOK_WIDTH = 9;
 
 /**
  * You's own drill-down: one row per prompt you sent, with how long it took
  * you to write it (the gap between the previous reply ending and this
  * prompt landing) — not a bucketed histogram, so a specific slow reply can
- * actually be identified rather than just counted.
+ * actually be identified rather than just counted. `⏎` on a row pushes
+ * PromptDetail, which shows the prompt's untruncated text (Overview.tsx).
  */
 export function UserPromptList({ userGaps, selectedIndex }: UserPromptListProps): React.JSX.Element {
   if (userGaps.length === 0) {
@@ -93,26 +96,37 @@ export function UserPromptList({ userGaps, selectedIndex }: UserPromptListProps)
       <Text dimColor>
         {userGaps.length} prompt{userGaps.length === 1 ? "" : "s"}, in order
       </Text>
-      <Box>
-        <Box width={PROMPT_PREVIEW_WIDTH + 2}>
+      <Box marginTop={1}>
+        <Box width={PROMPT_INDEX_WIDTH} flexShrink={0}>
+          <Text bold>{"  #"}</Text>
+        </Box>
+        <Box width={PROMPT_PREVIEW_WIDTH} marginRight={2} flexShrink={0}>
           <Text bold>Prompt</Text>
         </Box>
-        <Box width={10}>
+        <Box width={PROMPT_TOOK_WIDTH} flexShrink={0}>
           <Text bold>Took</Text>
         </Box>
       </Box>
       {visibleGaps.map((gap, i) => {
-        const selected = windowStart + i === selectedIndex;
+        const absoluteIndex = windowStart + i;
+        const selected = absoluteIndex === selectedIndex;
         const color = selected ? "cyan" : "white";
         return (
-          <Box key={`${i}-${gap.preview}`}>
-            <Box width={PROMPT_PREVIEW_WIDTH + 2} flexShrink={0}>
-              <Text color={color} wrap="truncate-end">
-                {selected ? ">" : " "} {truncate(gap.preview, PROMPT_PREVIEW_WIDTH)}
+          <Box key={`${absoluteIndex}-${gap.preview}`}>
+            <Box width={PROMPT_INDEX_WIDTH} flexShrink={0}>
+              <Text color={color} dimColor={!selected}>
+                {selected ? ">" : " "} {absoluteIndex + 1}
               </Text>
             </Box>
-            <Box width={10} flexShrink={0}>
-              <Text color={color}>{formatMs(gap.gapMs)}</Text>
+            <Box width={PROMPT_PREVIEW_WIDTH} marginRight={2} flexShrink={0}>
+              <Text color={color} bold={selected} wrap="truncate-end">
+                {truncate(gap.preview, PROMPT_PREVIEW_WIDTH)}
+              </Text>
+            </Box>
+            <Box width={PROMPT_TOOK_WIDTH} flexShrink={0}>
+              <Text color={color} dimColor={!selected}>
+                {formatMs(gap.gapMs)}
+              </Text>
             </Box>
           </Box>
         );
