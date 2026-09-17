@@ -353,6 +353,43 @@ this plan assumes its data model and FR numbering.
 
 ---
 
+### T17 — Deep hook telemetry
+- **Depends on:** T10, T11, T13
+- **Goal:** Subscribe to the hook events that carry time or money signal, and use them to
+  fix two numbers the transcript cannot express honestly on its own.
+- **Added after the T1–T16 wave**, from an audit of what CC 2.1.274 actually exposes: 31
+  hook events, of which the shipped install used two, keeping four fields.
+- **Files:** `src/hooks/records.ts`, `src/hooks/trace.ts` (new), `src/hooks/hook-script.ts`,
+  `src/hooks/install.ts`, `src/hooks/sidecar.ts`, `src/metrics/hook-insights.ts`,
+  `src/metrics/session-phases.ts` (new), `src/tui/Hooks.tsx` (new),
+  `src/tui/TimeSplitBar.tsx`, `src/tui/Overview.tsx`, `src/artifact/profile.ts`,
+  `src/artifact/schema.ts`, `src/cli/index.ts`, `README.md`, `SPEC.md`
+- **Steps:**
+  1. Subscribe to the 20 events in SPEC FR21; `MessageDisplay` only behind
+     `--stream-timing`, since it fires per streaming flush.
+  2. Sidecar schema v2 that stores sizes and identifiers, never content (FR22), and never
+     widens an absent field into `null` or `0`.
+  3. Split approval from dispatch overhead using `PermissionRequest` (FR24). This is what
+     the T9 open question was really asking; see its resolution below.
+  4. Carve session idle out of "You" using `SessionStart` (FR25), as a fifth bucket beside
+     the derived split rather than an edit to it.
+  5. Roll the rest up into the artifact's `hooks` section: retry tax, batch parallelism,
+     per-tool response bytes, cache-rewrite USD, per-`prompt_id` turns, slash-command cost,
+     subagent spans, instruction loads.
+  6. Read v1 sidecars unchanged, labelled `approvalPrecision: "unsplit"` (FR27).
+- **Acceptance criteria:**
+  - A resumed session no longer reports closed-laptop time as "You", and the five buckets
+    sum to the span exactly.
+  - `approvalMs` never includes the profiler's own hook-spawn cost, and a v1 sidecar is
+    never presented as though it could separate the two.
+  - The sidecar contains no prompt, tool-input or tool-result content.
+  - The hook script cannot fail a tool call: never non-zero, never stdout, no interleaving
+    under parallel calls.
+  - A session profiled without hooks is unchanged apart from two `null` fields.
+- **Verify:** `pnpm verify`, plus `buildProfile` over every local transcript.
+
+---
+
 ---
 
 ## Execution: waves and parallelism
