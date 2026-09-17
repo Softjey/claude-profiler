@@ -29,7 +29,10 @@ PROGRESS="$(git diff --name-only master...HEAD -- 'progress/T*.md')"
 [ -n "$PROGRESS" ] || die "no progress/T*.md on this branch — run /verify-task before merging"
 while IFS= read -r f; do
   [ -n "$f" ] || continue
-  git show "HEAD:$f" | grep -q 'PASS' || die "$f does not record a PASS — not merging a failed task"
+  # The verdict heading must END in PASS, so the skill's own "PASS | FAIL"
+  # template line cannot be mistaken for a verdict.
+  git show "HEAD:$f" | grep -qE '^##.*[[:space:]]PASS[[:space:]]*$' \
+    || die "$f records no PASS verdict — not merging an unverified or failed task"
 done <<EOF
 $PROGRESS
 EOF
