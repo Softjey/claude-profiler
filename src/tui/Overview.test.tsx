@@ -140,4 +140,43 @@ describe("OverviewScreen", () => {
     expect(readLine).toContain(">");
     expect(bashLine).not.toContain(">");
   });
+
+  it("switches the breakdown table on left/right arrow, cycling through all four categories", async () => {
+    const { lastFrame, stdin } = renderOverview(
+      makeProfile({
+        timeline: {
+          modelMs: 3000,
+          toolsMs: 5000,
+          userMs: 1000,
+          unaccountedMs: 1000,
+          spanMs: 10_000,
+          toolsIncludeApprovals: true,
+          precision: "derived",
+          userGapsMs: [1000],
+        },
+      }),
+    );
+
+    stdin.write("\x1B[C"); // right arrow: Tools -> You
+    await tick();
+    expect(lastFrame()).toContain("gap");
+
+    stdin.write("\x1B[C"); // You -> Unaccounted
+    await tick();
+    expect(lastFrame()).toContain("has no known cause");
+
+    stdin.write("\x1B[D"); // left arrow back to You
+    await tick();
+    expect(lastFrame()).toContain("gap");
+
+    stdin.write("\x1B[D"); // You -> Tools
+    await tick();
+    expect(lastFrame()).toContain("sorted by total");
+
+    stdin.write("\x1B[D"); // Tools -> Model
+    await tick();
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("Thinking");
+    expect(frame).toContain("Generation");
+  });
 });

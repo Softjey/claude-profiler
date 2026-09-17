@@ -3,7 +3,8 @@ import { useState } from "react";
 import type { Profile } from "../artifact/profile.js";
 import type { ScreenProps } from "./shell.js";
 import { registerTab } from "./shell.js";
-import { TimeSplitBar } from "./TimeSplitBar.js";
+import { CATEGORY_KEYS, TimeSplitBar, type Category } from "./TimeSplitBar.js";
+import { ModelSplitTable, UnaccountedBreakdown, UserGapHistogram } from "./CategoryBreakdown.js";
 import { ToolTable, SORT_KEYS, sortTools, type SortKey } from "./ToolTable.js";
 import { formatCostUSD, formatDateTime, formatMs } from "./format.js";
 import { toolDetailScreen } from "./ToolDetail.js";
@@ -36,11 +37,13 @@ export function OverviewScreen({ profile, nav }: ScreenProps): React.JSX.Element
   // the way back. nav.selection is what T14's "Esc restores the exact
   // previous selection" acceptance criterion depends on.
   const selectedIndex = nav.selection;
+  const [category, setCategory] = useState<Category>("tools");
   const [sortKey, setSortKey] = useState<SortKey>("totalMs");
   const [filter, setFilter] = useState("");
   const [filtering, setFiltering] = useState(false);
 
   const rows = sortTools(profile.tools, sortKey, filter);
+  const onTools = category === "tools";
 
   useInput((input, key) => {
     if (filtering) {
@@ -53,6 +56,15 @@ export function OverviewScreen({ profile, nav }: ScreenProps): React.JSX.Element
       }
       return;
     }
+
+    if (key.leftArrow || key.rightArrow) {
+      const delta = key.leftArrow ? -1 : 1;
+      const currentIndex = CATEGORY_KEYS.indexOf(category);
+      setCategory(CATEGORY_KEYS[(currentIndex + delta + CATEGORY_KEYS.length) % CATEGORY_KEYS.length] as Category);
+      return;
+    }
+
+    if (!onTools) return; // the other categories' breakdowns have nothing to select
 
     if (key.upArrow) {
       nav.setSelection(rows.length === 0 ? 0 : (selectedIndex - 1 + rows.length) % rows.length);
@@ -74,14 +86,24 @@ export function OverviewScreen({ profile, nav }: ScreenProps): React.JSX.Element
     <Box flexDirection="column">
       <Header profile={profile} />
       <Box marginBottom={1}>
-        <TimeSplitBar timeline={profile.timeline} />
+        <TimeSplitBar timeline={profile.timeline} activeCategory={category} />
       </Box>
-      <ToolTable tools={profile.tools} selectedIndex={selectedIndex} sortKey={sortKey} filter={filter} />
+      {category === "tools" ? (
+        <ToolTable tools={profile.tools} selectedIndex={selectedIndex} sortKey={sortKey} filter={filter} />
+      ) : category === "model" ? (
+        <ModelSplitTable modelMs={profile.timeline.modelMs} tokens={profile.tokens.totals} />
+      ) : category === "you" ? (
+        <UserGapHistogram gapsMs={profile.timeline.userGapsMs} />
+      ) : (
+        <UnaccountedBreakdown timeline={profile.timeline} unmatchedToolUses={profile.diagnostics.unmatchedToolUses} />
+      )}
       <Box marginTop={1}>
         <Text dimColor>
           {filtering
             ? "type to filter · ⏎/Esc done"
-            : "↑↓ select · ⏎ drill in · ⇥ next tab · s sort · / filter · q quit"}
+            : onTools
+              ? "←→ category · ↑↓ select · ⏎ drill in · ⇥ next tab · s sort · / filter · q quit"
+              : "←→ category · ⇥ next tab · q quit"}
         </Text>
       </Box>
     </Box>
