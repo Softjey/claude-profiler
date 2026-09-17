@@ -3,6 +3,8 @@ import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { buildEventModel } from "../src/model/build-model.js";
+import { computeTimeSplit } from "../src/metrics/time-split.js";
 import { parseTranscript } from "../src/parse/parse-transcript.js";
 import type { TranscriptRecord } from "../src/parse/types.js";
 
@@ -49,9 +51,13 @@ describe("corpus smoke test", () => {
           }
         }
 
-        // ---- extension point for T5's time-split invariant ----
-        // T5 adds, per file: modelMs + toolsMs + userMs + unaccountedMs === spanMs.
-        // Append here rather than rewriting this loop.
+        // ---- T5's time-split invariant ----
+        const { events, toolUses } = buildEventModel(records);
+        const split = computeTimeSplit(events, toolUses);
+        expect(split.modelMs + split.toolsMs + split.userMs + split.unaccountedMs).toBe(
+          split.spanMs,
+        );
+        expect(split.unaccountedMs).toBeGreaterThanOrEqual(0);
       }
 
       const sortedVersions = [...versions].sort();
