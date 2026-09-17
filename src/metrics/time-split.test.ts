@@ -68,7 +68,7 @@ describe("computeTimeSplit", () => {
     expect(split.modelMs).toBe(2000);
     expect(split.toolsMs).toBe(10_000);
     expect(split.userMs).toBe(8000);
-    expect(split.userGaps).toEqual([{ preview: "hi", gapMs: 8000 }]);
+    expect(split.userGaps).toEqual([{ preview: "hi", full: "hi", gapMs: 8000 }]);
   });
 
   it("reports one userGaps entry per assistant-turn-end -> next-prompt gap, paired with that prompt's own preview, in order", () => {
@@ -84,8 +84,8 @@ describe("computeTimeSplit", () => {
     const split = computeTimeSplit(events, toolUses);
 
     expect(split.userGaps).toEqual([
-      { preview: "second prompt", gapMs: 5000 },
-      { preview: "third prompt", gapMs: 30_000 },
+      { preview: "second prompt", full: "second prompt", gapMs: 5000 },
+      { preview: "third prompt", full: "third prompt", gapMs: 30_000 },
     ]);
   });
 
@@ -104,7 +104,7 @@ describe("computeTimeSplit", () => {
     const split = computeTimeSplit(events, toolUses);
 
     // 10s once, measured from the last record of the reply — not 12 + 11 + 10
-    expect(split.userGaps).toEqual([{ preview: "second prompt", gapMs: 10_000 }]);
+    expect(split.userGaps).toEqual([{ preview: "second prompt", full: "second prompt", gapMs: 10_000 }]);
     expect(split.userGaps.reduce((sum, gap) => sum + gap.gapMs, 0)).toBe(split.userMs);
   });
 
@@ -126,7 +126,9 @@ describe("computeTimeSplit", () => {
     const { events, toolUses } = buildEventModel(records);
     const split = computeTimeSplit(events, toolUses);
 
-    expect(split.userGaps).toEqual([{ preview: "спробуй ще раз", gapMs: 3 * 60 * 60 * 1000 }]);
+    expect(split.userGaps).toEqual([
+      { preview: "спробуй ще раз", full: "спробуй ще раз", gapMs: 3 * 60 * 60 * 1000 },
+    ]);
     // The 4s between the tool_use starting and the interruption is genuinely
     // unknown — it never got a tool_result, so it's neither toolsMs (FR10)
     // nor part of the 3h "You" gap, which starts only at the interruption.

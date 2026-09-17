@@ -10,6 +10,8 @@ import {
 export interface UserGap {
   /** The prompt this gap ends with, as a truncated single-line preview. */
   preview: string;
+  /** The same prompt in full, never truncated, for the prompt detail screen. */
+  full: string;
   gapMs: number;
 }
 
@@ -36,6 +38,7 @@ interface RawUserGap {
   startMs: number;
   endMs: number;
   preview: string;
+  full: string;
 }
 
 /**
@@ -71,7 +74,7 @@ function collectRawUserGaps(events: ModelEvent[]): RawUserGap[] {
       if (!isCompletedTurn) continue;
       const turnEndMs = parseMs(previous.at);
       if (turnEndMs !== null) {
-        gaps.push({ startMs: turnEndMs, endMs: promptMs, preview: event.preview });
+        gaps.push({ startMs: turnEndMs, endMs: promptMs, preview: event.preview, full: event.full });
       }
       break;
     }
@@ -127,7 +130,7 @@ export function computeTimeSplit(events: ModelEvent[], toolUses: ToolUseEvent[])
   const unaccountedMs = Math.max(0, spanMs - toolsMs - modelMs - userMs);
   const userGaps: UserGap[] = rawUserGaps
     .filter((gap) => gap.endMs > gap.startMs)
-    .map((gap) => ({ preview: gap.preview, gapMs: gap.endMs - gap.startMs }));
+    .map((gap) => ({ preview: gap.preview, full: gap.full, gapMs: gap.endMs - gap.startMs }));
 
   return {
     modelMs,

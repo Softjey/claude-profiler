@@ -105,7 +105,7 @@ describe("ModelBreakdownTable", () => {
 
 describe("UserPromptList", () => {
   function makeGap(overrides: Partial<UserGap> = {}): UserGap {
-    return { preview: "what does this do", gapMs: 5000, ...overrides };
+    return { preview: "what does this do", full: "what does this do", gapMs: 5000, ...overrides };
   }
 
   it("shows one row per prompt with its own preview and how long it took to write", () => {

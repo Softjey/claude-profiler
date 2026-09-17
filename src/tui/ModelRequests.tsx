@@ -420,10 +420,10 @@ export function ModelRequestDetailScreen({
         </Field>
         <Field label="Context carried">{formatCount(request.contextTokens)} tokens</Field>
       </Box>
-      {request.preview ? (
+      {request.full ? (
         <Box marginTop={1} flexDirection="column">
           <Text dimColor>What it wrote</Text>
-          <Text wrap="wrap">{request.preview}</Text>
+          <Text wrap="wrap">{request.full}</Text>
         </Box>
       ) : null}
       <Box marginTop={1}>

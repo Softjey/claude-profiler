@@ -78,6 +78,8 @@ export interface ModelRequest {
   cause: RequestCause;
   suspect: SuspectReason | null;
   preview: string;
+  /** The same text as `preview`, in full, never truncated, for the request detail screen. */
+  full: string;
 }
 
 export interface ModelRollup {
@@ -317,6 +319,7 @@ export function computeModelBreakdown(events: ModelEvent[], toolUses: ToolUseEve
     let isApiError = false;
     let errorKind: string | undefined;
     let preview = "";
+    let full = "";
     let tokens = { output: 0, thinking: 0, context: 0 };
     for (const item of items) {
       requestTotalMs += item.ms;
@@ -327,6 +330,7 @@ export function computeModelBreakdown(events: ModelEvent[], toolUses: ToolUseEve
         errorKind = item.segment.event.errorKind;
       }
       if (!preview && item.segment.event.preview) preview = item.segment.event.preview;
+      if (!full && item.segment.event.full) full = item.segment.event.full;
       // One record per request carries the usage; the rest repeat it.
       if (item.segment.event.usage && !item.segment.event.isUsageDuplicate) {
         tokens = usageTokens(item.segment.event);
@@ -358,6 +362,7 @@ export function computeModelBreakdown(events: ModelEvent[], toolUses: ToolUseEve
       // request has been measured.
       suspect: isApiError ? "api_error" : null,
       preview: isApiError && errorKind ? `${errorKind}: ${preview}` : preview,
+      full: isApiError && errorKind ? `${errorKind}: ${full}` : full,
     });
   }
 

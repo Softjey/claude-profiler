@@ -30,6 +30,7 @@ function makeRequest(overrides: Partial<ModelRequest> = {}): ModelRequest {
     cause: { kind: "prompt", name: null },
     suspect: null,
     preview: "a short reply",
+    full: "a short reply",
     ...overrides,
   };
 }
@@ -214,7 +215,11 @@ describe("ModelRequestDetailScreen", () => {
       createElement(ModelRequestDetailScreen, {
         profile: {} as Profile,
         nav: {} as NavStack,
-        request: makeRequest({ suspect: "api_error", preview: "server_error: went to sleep" }),
+        request: makeRequest({
+          suspect: "api_error",
+          preview: "server_error: went to sleep",
+          full: "server_error: went to sleep",
+        }),
         breakdown: makeBreakdown(),
       }),
     );

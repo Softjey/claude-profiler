@@ -221,7 +221,7 @@ describe("OverviewScreen", () => {
           spanMs: 10_000,
           toolsIncludeApprovals: true,
           precision: "derived",
-          userGaps: [{ preview: "why is this slow", gapMs: 1000 }],
+          userGaps: [{ preview: "why is this slow", full: "why is this slow", gapMs: 1000 }],
         },
       }),
     );
