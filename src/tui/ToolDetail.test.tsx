@@ -18,7 +18,6 @@ function makeCall(overrides: Partial<ToolCall> = {}): ToolCall {
     turnIndex: 0,
     startedAt: "2026-01-01T00:00:00.000Z",
     durationMs: 1000,
-    isOutlier: false,
     inputPreview: "{}",
     ...overrides,
   };
@@ -35,12 +34,11 @@ function makeTool(overrides: Partial<ExactToolStat> = {}): ExactToolStat {
     medianMs: 749,
     p90Ms: 1000,
     maxMs: 1_064_111,
-    outlierCount: 1,
     unfinishedCount: 0,
     pctOfSession: 0.1,
     callRefs: [
-      makeCall({ id: "toolu_fast", durationMs: 749, isOutlier: false }),
-      makeCall({ id: "toolu_slow", durationMs: 1_064_111, isOutlier: true }),
+      makeCall({ id: "toolu_fast", durationMs: 749 }),
+      makeCall({ id: "toolu_slow", durationMs: 1_064_111 }),
     ],
     exactMs: null,
     approvalMs: null,
@@ -102,7 +100,7 @@ function renderToolDetail(tool: ExactToolStat, profile: Profile) {
 }
 
 describe("ToolDetailScreen", () => {
-  it("puts the 1064s call first, sorted by duration desc, and marks it an outlier", () => {
+  it("puts the 1064s call first, sorted by duration desc", () => {
     const tool = makeTool();
     const { lastFrame } = renderToolDetail(tool, makeProfile());
     const frame = lastFrame() ?? "";
@@ -114,8 +112,6 @@ describe("ToolDetailScreen", () => {
     expect(slowIndex).toBeGreaterThan(-1);
     expect(fastIndex).toBeGreaterThan(-1);
     expect(slowIndex).toBeLessThan(fastIndex);
-    // the outlier marker sits just before the slow call's duration
-    expect(frame.slice(Math.max(0, slowIndex - 4), slowIndex)).toContain("!");
   });
 
   it("drills into a call on Enter for a non-task tool", async () => {
@@ -123,7 +119,7 @@ describe("ToolDetailScreen", () => {
     const { lastFrame, stdin } = renderToolDetail(tool, makeProfile());
     stdin.write("\r");
     await tick();
-    // the top (selected) row is the 1064s outlier call, sorted first
+    // the top (selected) row is the 1064s call, sorted first
     expect(lastFrame()).toContain("toolu_slow");
   });
 
@@ -169,7 +165,7 @@ describe("ToolDetailScreen", () => {
     await tick();
     stdin.write("\r"); // Enter again, with no further navigation
     await tick();
-    // still toolu_fast, not reset back to the first (outlier) row
+    // still toolu_fast, not reset back to the first (slowest) row
     expect(lastFrame()).toContain("toolu_fast");
   });
 
@@ -177,11 +173,10 @@ describe("ToolDetailScreen", () => {
     return makeTool({
       name: "Bash",
       callRefs: [
-        makeCall({ id: "toolu_git", durationMs: 749, isOutlier: false, inputPreview: '{"command":"git status"}' }),
+        makeCall({ id: "toolu_git", durationMs: 749, inputPreview: '{"command":"git status"}' }),
         makeCall({
           id: "toolu_pnpm",
           durationMs: 1_064_111,
-          isOutlier: true,
           inputPreview: '{"command":"pnpm test"}',
         }),
       ],

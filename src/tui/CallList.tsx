@@ -92,7 +92,7 @@ export function CallList({ calls: rawCalls, tool, profile, nav, emptyMessage }: 
       ) : (
         visibleCalls.map((call, i) => {
           const selected = windowStart + i === selectedIndex;
-          const color = selected ? "cyan" : call.isOutlier ? "red" : "white";
+          const color = selected ? "cyan" : "white";
           const subagent = subagentByCallId.get(call.id);
           return (
             <Box key={call.id}>
@@ -103,8 +103,7 @@ export function CallList({ calls: rawCalls, tool, profile, nav, emptyMessage }: 
                 <Text color={color}>{formatDateTime(call.startedAt)}</Text>
               </Box>
               <Box width={10}>
-                <Text color={color} bold={call.isOutlier}>
-                  {call.isOutlier ? "! " : "  "}
+                <Text color={color}>
                   {call.durationMs === null ? "unfinished" : formatMs(call.durationMs)}
                 </Text>
               </Box>

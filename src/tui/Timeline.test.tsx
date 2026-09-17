@@ -17,7 +17,6 @@ function makeCall(overrides: Partial<ToolCall> = {}): ToolCall {
     turnIndex: 0,
     startedAt: "2026-01-01T00:00:00.000Z",
     durationMs: 1000,
-    isOutlier: false,
     inputPreview: "{}",
     ...overrides,
   };
@@ -34,7 +33,6 @@ function makeTool(overrides: Partial<ExactToolStat> = {}): ExactToolStat {
     medianMs: 1000,
     p90Ms: 1000,
     maxMs: 1000,
-    outlierCount: 0,
     unfinishedCount: 0,
     pctOfSession: 0.1,
     callRefs: [makeCall()],

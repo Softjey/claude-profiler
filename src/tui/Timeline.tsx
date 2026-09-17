@@ -194,7 +194,6 @@ function callTurnEvent(call: ToolCall, tool: ExactToolStat): TurnEvent {
         {selected ? "> " : "  "}
         {formatDateTime(call.startedAt)} · {tool.name} ·{" "}
         {call.durationMs === null ? "unfinished" : formatMs(call.durationMs)}
-        {call.isOutlier ? " (outlier)" : ""}
       </Text>
     ),
     open: (nav) => nav.push(callDetailScreen(call, tool)),

@@ -2,7 +2,7 @@ import { render } from "ink-testing-library";
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 import type { ExactToolStat } from "../hooks/sidecar.js";
-import { ToolTable, isOutlierDominated, sortTools } from "./ToolTable.js";
+import { ToolTable, sortTools } from "./ToolTable.js";
 
 function makeTool(overrides: Partial<ExactToolStat> = {}): ExactToolStat {
   return {
@@ -15,7 +15,6 @@ function makeTool(overrides: Partial<ExactToolStat> = {}): ExactToolStat {
     medianMs: 1000,
     p90Ms: 1000,
     maxMs: 1000,
-    outlierCount: 0,
     unfinishedCount: 0,
     pctOfSession: 0.3,
     callRefs: [],
@@ -24,25 +23,6 @@ function makeTool(overrides: Partial<ExactToolStat> = {}): ExactToolStat {
     ...overrides,
   };
 }
-
-describe("isOutlierDominated", () => {
-  it("flags a row whose total is more than 3x its typical cost", () => {
-    // one call at 1064s vs. a median-driven typical of a few seconds — the
-    // T13 acceptance fixture's `computer` row (T7's session 54fd3ef0).
-    const computer = makeTool({
-      name: "computer",
-      calls: 5,
-      typicalMs: 5_000,
-      totalMs: 1_064_000,
-    });
-    expect(isOutlierDominated(computer)).toBe(true);
-  });
-
-  it("does not flag a row whose total tracks its typical cost", () => {
-    const bash = makeTool({ totalMs: 3000, typicalMs: 3000 });
-    expect(isOutlierDominated(bash)).toBe(false);
-  });
-});
 
 describe("sortTools", () => {
   const tools = [
@@ -64,7 +44,7 @@ describe("sortTools", () => {
 });
 
 describe("ToolTable", () => {
-  it("visibly marks an outlier-dominated row", () => {
+  it("renders every tool row", () => {
     const tools = [
       makeTool({ name: "Bash", totalMs: 3000, typicalMs: 3000 }),
       makeTool({ name: "computer", totalMs: 1_064_000, typicalMs: 5000, calls: 5 }),
@@ -75,11 +55,8 @@ describe("ToolTable", () => {
     );
     const frame = lastFrame() ?? "";
     const lines = frame.split("\n");
-    const computerLine = lines.find((l) => l.includes("computer"));
 
-    expect(computerLine).toBeDefined();
-    expect(computerLine).toContain("!");
-    const bashLine = lines.find((l) => l.includes("Bash"));
-    expect(bashLine?.includes("!")).toBe(false);
+    expect(lines.find((l) => l.includes("Bash"))).toBeDefined();
+    expect(lines.find((l) => l.includes("computer"))).toBeDefined();
   });
 });

@@ -32,7 +32,6 @@ function makeSubagent(overrides: Partial<SubagentStat> = {}): SubagentStat {
         medianMs: 2000,
         p90Ms: 2000,
         maxMs: 2000,
-        outlierCount: 0,
         unfinishedCount: 0,
         pctOfSession: 0.5,
         callRefs: [],

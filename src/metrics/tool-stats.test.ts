@@ -58,38 +58,6 @@ describe("computeToolStats", () => {
     expect(bash?.pctOfSession).toBeCloseTo(0.6, 5);
   });
 
-  it("flags a call as an outlier when duration > max(median * 5, 30_000ms)", () => {
-    const stats = computeToolStats(
-      [
-        toolUse({ id: "1", name: "Read", durationMs: 100 }),
-        toolUse({ id: "2", name: "Read", durationMs: 110 }),
-        toolUse({ id: "3", name: "Read", durationMs: 90 }),
-        toolUse({ id: "4", name: "Read", durationMs: 1_000_000 }),
-      ],
-      2_000_000,
-    );
-
-    const read = stats.find((s) => s.name === "Read");
-    expect(read?.outlierCount).toBe(1);
-    const outlierCall = read?.callRefs.find((c) => c.id === "4");
-    expect(outlierCall?.isOutlier).toBe(true);
-    expect(read?.callRefs.filter((c) => c.id !== "4").every((c) => !c.isOutlier)).toBe(true);
-  });
-
-  it("uses the 30s floor when the median is small", () => {
-    const stats = computeToolStats(
-      [
-        toolUse({ id: "1", name: "Read", durationMs: 100 }),
-        toolUse({ id: "2", name: "Read", durationMs: 29_000 }),
-      ],
-      100_000,
-    );
-
-    const read = stats.find((s) => s.name === "Read");
-    // median = 14550, *5 = 72750 > 30_000, so 29_000 is not an outlier
-    expect(read?.outlierCount).toBe(0);
-  });
-
   it("counts unmatched tool_use events as unfinished without a duration", () => {
     const stats = computeToolStats(
       [
@@ -105,11 +73,11 @@ describe("computeToolStats", () => {
     expect(bash?.totalMs).toBe(100);
   });
 
-  it("truncates inputPreview to 200 chars", () => {
-    const longInput = { text: "x".repeat(500) };
+  it("truncates inputPreview to 4000 chars", () => {
+    const longInput = { text: "x".repeat(5000) };
     const stats = computeToolStats([toolUse({ id: "1", name: "Read", input: longInput, durationMs: 10 })], 1000);
 
-    expect(stats[0]?.callRefs[0]?.inputPreview.length).toBe(200);
+    expect(stats[0]?.callRefs[0]?.inputPreview.length).toBe(4000);
   });
 
   it("sorts stats by totalMs descending", () => {
@@ -142,7 +110,7 @@ describe("computeToolStats against session 54fd3ef0", () => {
 
   const maybeIt = hasTranscript ? it : it.skip;
 
-  maybeIt("reports the documented computer-tool stats and outlier discrepancy", async () => {
+  maybeIt("reports the documented computer-tool stats", async () => {
     const { records } = await parseTranscript(transcriptPath);
     const { toolUses } = buildEventModel(records);
 
@@ -156,7 +124,6 @@ describe("computeToolStats against session 54fd3ef0", () => {
     expect(computer?.calls).toBe(20);
     expect(computer?.medianMs).toBeCloseTo(749, -1);
     expect(computer?.maxMs).toBeCloseTo(1_064_111, -3);
-    expect(computer?.outlierCount).toBe(1);
     expect(computer?.typicalMs).toBeLessThan(30_000);
     expect(computer?.totalMs).toBeGreaterThan(17 * 60 * 1000);
   });

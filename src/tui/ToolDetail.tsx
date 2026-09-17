@@ -148,11 +148,11 @@ export function ToolDetailScreen({ tool, profile, nav }: ToolDetailScreenProps):
       {hasViews ? (
         <Box marginTop={1}>
           <Text>
-            <Text color={view === VIEW_BY_COMMAND ? "#a78bda" : "cyan"} bold={view === VIEW_BY_COMMAND}>
+            <Text color={view === VIEW_BY_COMMAND ? "cyan" : "white"} bold={view === VIEW_BY_COMMAND}>
               [By command]
             </Text>
             {"  "}
-            <Text color={view === VIEW_CALLS ? "#a78bda" : "cyan"} bold={view === VIEW_CALLS}>
+            <Text color={view === VIEW_CALLS ? "cyan" : "white"} bold={view === VIEW_CALLS}>
               [Calls]
             </Text>
             <Text dimColor>  ←→ switch view</Text>

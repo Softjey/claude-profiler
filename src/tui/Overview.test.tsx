@@ -20,7 +20,6 @@ function makeTool(overrides: Partial<ExactToolStat> = {}): ExactToolStat {
     medianMs: 1000,
     p90Ms: 1000,
     maxMs: 1000,
-    outlierCount: 0,
     unfinishedCount: 0,
     pctOfSession: 0.3,
     callRefs: [],

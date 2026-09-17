@@ -22,7 +22,6 @@ function toolCall(overrides: Partial<ToolCall> & { id: string }): ToolCall {
     turnIndex: 0,
     startedAt: null,
     durationMs: null,
-    isOutlier: false,
     inputPreview: "",
     ...overrides,
   };
@@ -38,7 +37,6 @@ function toolStat(overrides: Partial<ToolStat> & { name: string; callRefs: ToolC
     medianMs: 0,
     p90Ms: 0,
     maxMs: 0,
-    outlierCount: 0,
     unfinishedCount: 0,
     pctOfSession: 0,
     ...overrides,

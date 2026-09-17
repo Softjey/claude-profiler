@@ -10,7 +10,6 @@ export interface ToolCall {
   turnIndex: number;
   startedAt: string | null;
   durationMs: number | null;
-  isOutlier: boolean;
   inputPreview: string;
 }
 
@@ -24,7 +23,6 @@ export interface ToolStat {
   medianMs: number;
   p90Ms: number;
   maxMs: number;
-  outlierCount: number;
   unfinishedCount: number;
   pctOfSession: number;
   callRefs: ToolCall[];
@@ -32,7 +30,11 @@ export interface ToolStat {
   bashGroups?: BashGroupStat[];
 }
 
-const INPUT_PREVIEW_MAX_CHARS = 200;
+// Large enough that the call-detail pane's JSON.parse succeeds on realistic
+// tool inputs (e.g. AskUserQuestion's multi-question payloads), not just the
+// short ones — the table row still truncates further via NAME_WIDTH
+// (ToolDetail.tsx).
+const INPUT_PREVIEW_MAX_CHARS = 4000;
 
 function classifyKind(name: string): { kind: ToolKind; mcpServer: string | undefined } {
   if (name === "Task") return { kind: "task", mcpServer: undefined };
@@ -41,10 +43,6 @@ function classifyKind(name: string): { kind: ToolKind; mcpServer: string | undef
     return { kind: "mcp", mcpServer: server };
   }
   return { kind: "builtin", mcpServer: undefined };
-}
-
-function isOutlier(durationMs: number, medianMs: number): boolean {
-  return durationMs > Math.max(medianMs * 5, 30_000);
 }
 
 function truncateInputPreview(input: unknown): string {
@@ -83,20 +81,14 @@ export function computeToolStats(toolUses: ToolUseEvent[], spanMs: number): Tool
     const totalMs = durations.reduce((sum, d) => sum + d, 0);
     const unfinishedCount = events.filter((e) => e.unfinished).length;
 
-    let outlierCount = 0;
-    const callRefs: ToolCall[] = events.map((event) => {
-      const outlier = event.durationMs !== null && isOutlier(event.durationMs, medianMs);
-      if (outlier) outlierCount++;
-      return {
-        id: event.id,
-        name: event.name,
-        turnIndex: event.turnIndex,
-        startedAt: event.startedAt,
-        durationMs: event.durationMs,
-        isOutlier: outlier,
-        inputPreview: truncateInputPreview(event.input),
-      };
-    });
+    const callRefs: ToolCall[] = events.map((event) => ({
+      id: event.id,
+      name: event.name,
+      turnIndex: event.turnIndex,
+      startedAt: event.startedAt,
+      durationMs: event.durationMs,
+      inputPreview: truncateInputPreview(event.input),
+    }));
 
     stats.push({
       name,
@@ -108,7 +100,6 @@ export function computeToolStats(toolUses: ToolUseEvent[], spanMs: number): Tool
       medianMs,
       p90Ms,
       maxMs,
-      outlierCount,
       unfinishedCount,
       pctOfSession: spanMs > 0 ? totalMs / spanMs : 0,
       callRefs,

@@ -15,16 +15,6 @@ const SORT_LABELS: Record<SortKey, string> = {
   name: "name",
 };
 
-/**
- * A row diverges enough from its own typical cost that one glance should
- * flag it (T13 step 4): the raw sum is more than 3x what `calls * median`
- * predicts, meaning a handful of outliers — not the tool itself — are
- * driving the total.
- */
-export function isOutlierDominated(tool: ExactToolStat): boolean {
-  return tool.typicalMs > 0 && tool.totalMs > tool.typicalMs * 3;
-}
-
 export function sortTools(tools: ExactToolStat[], sortKey: SortKey, filter: string): ExactToolStat[] {
   const filtered = filter
     ? tools.filter((t) => t.name.toLowerCase().includes(filter.toLowerCase()))
@@ -91,22 +81,18 @@ export function ToolTable({ tools, selectedIndex, sortKey, filter }: ToolTablePr
         <Box width={10} flexShrink={0}>
           <Text bold>Median</Text>
         </Box>
-        <Box width={9} flexShrink={0}>
-          <Text bold>Outliers</Text>
-        </Box>
       </Box>
       {rows.length === 0 ? (
         <Text dimColor>No tool calls match.</Text>
       ) : (
         visibleRows.map((tool, i) => {
           const selected = windowStart + i === selectedIndex;
-          const outlier = isOutlierDominated(tool);
           const color = selected ? "cyan" : "white";
-          const marker = outlier ? "!" : selected ? ">" : " ";
+          const marker = selected ? ">" : " ";
           return (
             <Box key={tool.name}>
               <Box width={34} marginRight={1} flexShrink={0}>
-                <Text color={outlier ? "red" : color} bold={outlier} wrap="truncate-end">
+                <Text color={color} wrap="truncate-end">
                   {marker} {tool.name}
                 </Text>
               </Box>
@@ -121,9 +107,6 @@ export function ToolTable({ tools, selectedIndex, sortKey, filter }: ToolTablePr
               </Box>
               <Box width={10} flexShrink={0}>
                 <Text color={color}>{formatMs(tool.medianMs)}</Text>
-              </Box>
-              <Box width={9} flexShrink={0}>
-                <Text color={color}>{tool.outlierCount > 0 ? tool.outlierCount : "—"}</Text>
               </Box>
             </Box>
           );

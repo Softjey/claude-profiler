@@ -13,7 +13,6 @@ function makeCall(overrides: Partial<ToolCall> = {}): ToolCall {
     turnIndex: 3,
     startedAt: "2026-01-01T00:00:00.000Z",
     durationMs: 1_064_111,
-    isOutlier: true,
     inputPreview: '{"action":"screenshot"}',
     ...overrides,
   };
@@ -30,7 +29,6 @@ function makeTool(overrides: Partial<ExactToolStat> = {}): ExactToolStat {
     medianMs: 749,
     p90Ms: 1_064_111,
     maxMs: 1_064_111,
-    outlierCount: 1,
     unfinishedCount: 0,
     pctOfSession: 0.1,
     callRefs: [],
@@ -56,21 +54,8 @@ describe("CallDetailScreen", () => {
     expect(frame).toContain("screenshot");
   });
 
-  it("explains why an outlier call was flagged, referencing the median", () => {
-    const { lastFrame } = renderCallDetail(makeCall(), makeTool());
-    const frame = lastFrame() ?? "";
-    expect(frame).toContain("Outlier: yes");
-    expect(frame).toContain("median");
-  });
-
-  it("says 'no' for a call under the outlier threshold", () => {
-    const call = makeCall({ isOutlier: false, durationMs: 500 });
-    const { lastFrame } = renderCallDetail(call, makeTool());
-    expect(lastFrame()).toContain("Outlier: no");
-  });
-
   it("reports an unfinished call rather than a fabricated duration", () => {
-    const call = makeCall({ durationMs: null, isOutlier: false });
+    const call = makeCall({ durationMs: null });
     const { lastFrame } = renderCallDetail(call, makeTool());
     expect(lastFrame()).toContain("unfinished");
   });
