@@ -184,7 +184,7 @@ describe("assertProfileInvariants", () => {
         spanMs: 100,
         toolsIncludeApprovals: true,
         precision: "derived",
-        userGapsMs: [],
+        userGaps: [],
       },
       tools: [],
       subagents: [],

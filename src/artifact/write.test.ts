@@ -34,7 +34,7 @@ function minimalProfile(sessionId: string): Profile {
       spanMs: 0,
       toolsIncludeApprovals: true,
       precision: "derived",
-      userGapsMs: [],
+      userGaps: [],
     },
     tools: [],
     subagents: [],

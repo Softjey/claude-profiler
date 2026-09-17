@@ -27,6 +27,8 @@ export interface UserPromptEvent {
   uuid: string | undefined;
   at: string | null;
   turnIndex: number;
+  /** The prompt's own text as a truncated single-line preview, never the full (possibly huge) prompt. */
+  preview: string;
 }
 
 export interface SystemEvent {

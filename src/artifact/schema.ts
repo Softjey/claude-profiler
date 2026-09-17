@@ -89,7 +89,7 @@ export const PROFILE_JSON_SCHEMA = {
         "spanMs",
         "toolsIncludeApprovals",
         "precision",
-        "userGapsMs",
+        "userGaps",
       ],
       properties: {
         modelMs: { type: "number", minimum: 0 },
@@ -99,7 +99,17 @@ export const PROFILE_JSON_SCHEMA = {
         spanMs: { type: "number", minimum: 0 },
         toolsIncludeApprovals: { const: true },
         precision: { enum: ["derived", "exact"] },
-        userGapsMs: { type: "array", items: { type: "number", minimum: 0 } },
+        userGaps: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["preview", "gapMs"],
+            properties: {
+              preview: { type: "string" },
+              gapMs: { type: "number", minimum: 0 },
+            },
+          },
+        },
       },
     },
     toolCall: {

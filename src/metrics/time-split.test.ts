@@ -3,12 +3,12 @@ import { buildEventModel } from "../model/build-model.js";
 import type { TranscriptRecord } from "../parse/types.js";
 import { computeTimeSplit } from "./time-split.js";
 
-function userPrompt(uuid: string, timestamp: string): TranscriptRecord {
+function userPrompt(uuid: string, timestamp: string, content = "hi"): TranscriptRecord {
   return {
     type: "user",
     uuid,
     timestamp,
-    message: { role: "user", content: "hi" },
+    message: { role: "user", content },
   } as TranscriptRecord;
 }
 
@@ -68,22 +68,25 @@ describe("computeTimeSplit", () => {
     expect(split.modelMs).toBe(2000);
     expect(split.toolsMs).toBe(10_000);
     expect(split.userMs).toBe(8000);
-    expect(split.userGapsMs).toEqual([8000]);
+    expect(split.userGaps).toEqual([{ preview: "hi", gapMs: 8000 }]);
   });
 
-  it("reports one userGapsMs entry per assistant-turn-end -> next-prompt gap, in order", () => {
+  it("reports one userGaps entry per assistant-turn-end -> next-prompt gap, paired with that prompt's own preview, in order", () => {
     const records: TranscriptRecord[] = [
       userPrompt("u1", "2026-01-01T00:00:00.000Z"),
       assistant("a1", "2026-01-01T00:00:01.000Z", [], "end_turn"),
-      userPrompt("u2", "2026-01-01T00:00:06.000Z"), // 5s gap
+      userPrompt("u2", "2026-01-01T00:00:06.000Z", "second prompt"), // 5s gap
       assistant("a2", "2026-01-01T00:00:07.000Z", [], "end_turn"),
-      userPrompt("u3", "2026-01-01T00:00:37.000Z"), // 30s gap
+      userPrompt("u3", "2026-01-01T00:00:37.000Z", "third prompt"), // 30s gap
     ];
 
     const { events, toolUses } = buildEventModel(records);
     const split = computeTimeSplit(events, toolUses);
 
-    expect(split.userGapsMs).toEqual([5000, 30_000]);
+    expect(split.userGaps).toEqual([
+      { preview: "second prompt", gapMs: 5000 },
+      { preview: "third prompt", gapMs: 30_000 },
+    ]);
   });
 
   it("merges three parallel 10s tool calls into 10s of toolsMs, not 30s", () => {
@@ -132,7 +135,7 @@ describe("computeTimeSplit", () => {
       spanMs: 0,
       toolsIncludeApprovals: true,
       precision: "derived",
-      userGapsMs: [],
+      userGaps: [],
     });
   });
 });

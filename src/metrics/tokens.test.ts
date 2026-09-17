@@ -15,7 +15,7 @@ function assistantEvent(model: string | undefined, usage: AssistantEvent["usage"
 }
 
 function userPromptEvent(): UserPromptEvent {
-  return { type: "user_prompt", uuid: "u1", at: "2026-01-01T00:00:00.000Z", turnIndex: 0 };
+  return { type: "user_prompt", uuid: "u1", at: "2026-01-01T00:00:00.000Z", turnIndex: 0, preview: "hi" };
 }
 
 describe("computeTokenStats", () => {

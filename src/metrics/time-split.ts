@@ -1,6 +1,12 @@
 import type { ModelEvent, ToolUseEvent } from "../model/events.js";
 import { type Interval, mergeIntervals, subtractIntervals, sumMs } from "./interval.js";
 
+export interface UserGap {
+  /** The prompt this gap ends with, as a truncated single-line preview. */
+  preview: string;
+  gapMs: number;
+}
+
 export interface TimeSplit {
   modelMs: number;
   toolsMs: number;
@@ -11,12 +17,12 @@ export interface TimeSplit {
   precision: "derived";
   /**
    * One entry per assistant-turn-end → next-user-prompt gap, in chronological
-   * order (D-follow-up: the "You" drill-down histogram). Raw gap lengths, not
-   * adjusted by the tools/model subtraction that keeps the four headline
-   * buckets mutually exclusive — so this can sum to slightly more than
-   * `userMs`, same as any diagnostic breakdown of a derived bucket.
+   * order (the "You" drill-down: how long each reply took to write). Raw gap
+   * lengths, not adjusted by the tools/model subtraction that keeps the four
+   * headline buckets mutually exclusive — so this can sum to slightly more
+   * than `userMs`, same as any diagnostic breakdown of a derived bucket.
    */
-  userGapsMs: number[];
+  userGaps: UserGap[];
 }
 
 function parseMs(at: string | null | undefined): number | null {
@@ -88,8 +94,14 @@ function buildModelIntervals(events: ModelEvent[], sortedUniquePoints: number[])
   return intervals;
 }
 
-function buildUserIntervals(events: ModelEvent[]): Interval[] {
-  const intervals: Interval[] = [];
+interface RawUserGap {
+  startMs: number;
+  endMs: number;
+  preview: string;
+}
+
+function collectRawUserGaps(events: ModelEvent[]): RawUserGap[] {
+  const gaps: RawUserGap[] = [];
   for (let i = 0; i < events.length; i++) {
     const event = events[i];
     if (!event || event.type !== "assistant" || event.stopReason === "tool_use") continue;
@@ -101,12 +113,12 @@ function buildUserIntervals(events: ModelEvent[]): Interval[] {
       if (!next || next.type !== "user_prompt") continue;
       const promptMs = parseMs(next.at);
       if (promptMs !== null) {
-        intervals.push({ startMs: turnEndMs, endMs: promptMs });
+        gaps.push({ startMs: turnEndMs, endMs: promptMs, preview: next.preview });
       }
       break;
     }
   }
-  return intervals;
+  return gaps;
 }
 
 /**
@@ -128,7 +140,7 @@ export function computeTimeSplit(events: ModelEvent[], toolUses: ToolUseEvent[])
       spanMs: 0,
       toolsIncludeApprovals: true,
       precision: "derived",
-      userGapsMs: [],
+      userGaps: [],
     };
   }
 
@@ -147,14 +159,17 @@ export function computeTimeSplit(events: ModelEvent[], toolUses: ToolUseEvent[])
     mergeIntervals(buildModelIntervals(events, sortedUniquePoints)),
     toolsFinal,
   );
-  const userRaw = mergeIntervals(buildUserIntervals(events));
+  const rawUserGaps = collectRawUserGaps(events);
+  const userRaw = mergeIntervals(rawUserGaps.map((gap) => ({ startMs: gap.startMs, endMs: gap.endMs })));
   const userFinal = subtractIntervals(userRaw, mergeIntervals([...toolsFinal, ...modelFinal]));
 
   const toolsMs = sumMs(toolsFinal);
   const modelMs = sumMs(modelFinal);
   const userMs = sumMs(userFinal);
   const unaccountedMs = Math.max(0, spanMs - toolsMs - modelMs - userMs);
-  const userGapsMs = userRaw.map((interval) => interval.endMs - interval.startMs);
+  const userGaps: UserGap[] = rawUserGaps
+    .filter((gap) => gap.endMs > gap.startMs)
+    .map((gap) => ({ preview: gap.preview, gapMs: gap.endMs - gap.startMs }));
 
   return {
     modelMs,
@@ -164,6 +179,6 @@ export function computeTimeSplit(events: ModelEvent[], toolUses: ToolUseEvent[])
     spanMs,
     toolsIncludeApprovals: true,
     precision: "derived",
-    userGapsMs,
+    userGaps,
   };
 }

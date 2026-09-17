@@ -58,7 +58,7 @@ function makeProfile(overrides: Partial<Profile> = {}): Profile {
       spanMs: 10_000,
       toolsIncludeApprovals: true,
       precision: "derived",
-      userGapsMs: [],
+      userGaps: [],
     },
     tools: [makeTool({ name: "Bash" }), makeTool({ name: "Read", totalMs: 500, medianMs: 100 })],
     subagents: [],
@@ -122,6 +122,9 @@ describe("OverviewScreen", () => {
   it("drills into the selected tool on Enter, and Esc returns to the exact previous selection", async () => {
     const { lastFrame, stdin } = renderOverview(makeProfile());
 
+    // Enter: category focus -> detail focus, still on "tools" (the default category)
+    stdin.write("\r");
+    await tick();
     // select the second row ("Read"), then drill in
     stdin.write("[B"); // down arrow
     await tick();
@@ -141,7 +144,7 @@ describe("OverviewScreen", () => {
     expect(bashLine).not.toContain(">");
   });
 
-  it("switches the breakdown table on left/right arrow, cycling through all four categories", async () => {
+  it("moves the category highlight on up/down arrow, and shows each one's breakdown only after Enter", async () => {
     const { lastFrame, stdin } = renderOverview(
       makeProfile({
         timeline: {
@@ -152,28 +155,39 @@ describe("OverviewScreen", () => {
           spanMs: 10_000,
           toolsIncludeApprovals: true,
           precision: "derived",
-          userGapsMs: [1000],
+          userGaps: [{ preview: "why is this slow", gapMs: 1000 }],
         },
       }),
     );
 
-    stdin.write("\x1B[C"); // right arrow: Tools -> You
-    await tick();
-    expect(lastFrame()).toContain("gap");
+    // default: "tools" highlighted, category focus (not yet "into" the table)
+    expect(lastFrame()).toContain("↑↓ category");
 
-    stdin.write("\x1B[C"); // You -> Unaccounted
+    stdin.write("[B"); // down arrow: Tools -> You
+    await tick();
+    stdin.write("\r"); // Enter: into You's breakdown
+    await tick();
+    expect(lastFrame()).toContain("why is this slow");
+
+    stdin.write(""); // Esc: back out to category focus
+    await tick();
+    expect(lastFrame()).toContain("↑↓ category");
+
+    stdin.write("[B"); // You -> Unaccounted
+    await tick();
+    stdin.write("\r");
     await tick();
     expect(lastFrame()).toContain("has no known cause");
 
-    stdin.write("\x1B[D"); // left arrow back to You
+    stdin.write(""); // Esc
     await tick();
-    expect(lastFrame()).toContain("gap");
-
-    stdin.write("\x1B[D"); // You -> Tools
+    stdin.write("[A"); // up arrow: Unaccounted -> You
     await tick();
-    expect(lastFrame()).toContain("sorted by total");
-
-    stdin.write("\x1B[D"); // Tools -> Model
+    stdin.write("[A"); // You -> Tools
+    await tick();
+    stdin.write("[A"); // Tools -> Model
+    await tick();
+    stdin.write("\r"); // into Model's breakdown
     await tick();
     const frame = lastFrame() ?? "";
     expect(frame).toContain("Thinking");

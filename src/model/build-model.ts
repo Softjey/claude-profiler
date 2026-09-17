@@ -1,5 +1,6 @@
 import type {
   ContentBlock,
+  TextBlock,
   ToolResultBlock,
   ToolUseBlock,
   TranscriptRecord,
@@ -7,12 +8,44 @@ import type {
 } from "../parse/types.js";
 import type { EventModel, ModelEvent, ToolUseEvent } from "./events.js";
 
+const PROMPT_PREVIEW_MAX_CHARS = 200;
+
 function isToolResultBlock(block: ContentBlock): block is ToolResultBlock {
   return block.type === "tool_result";
 }
 
 function isToolUseBlock(block: ContentBlock): block is ToolUseBlock {
   return block.type === "tool_use";
+}
+
+function isTextBlock(block: ContentBlock): block is TextBlock {
+  return block.type === "text";
+}
+
+/**
+ * A single-line, length-capped preview of what the user typed (D-follow-up:
+ * the You drill-down needs the prompt text itself, not just its timing).
+ * `content` is either a plain string or a content-block array across the CC
+ * versions in the wild (same leniency as everywhere else in this file); only
+ * text blocks contribute, since tool_result/image blocks carry nothing a
+ * person wrote themselves.
+ */
+function extractPromptPreview(content: string | ContentBlock[] | undefined): string {
+  const raw =
+    typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content
+            .filter(isTextBlock)
+            .map((block) => block.text ?? "")
+            .join(" ")
+        : "";
+
+  const collapsed = raw.replace(/\s+/g, " ").trim();
+  if (collapsed.length === 0) return "(empty prompt)";
+  return collapsed.length > PROMPT_PREVIEW_MAX_CHARS
+    ? `${collapsed.slice(0, PROMPT_PREVIEW_MAX_CHARS - 1)}…`
+    : collapsed;
 }
 
 function timestampMs(timestamp: string | undefined | null): number | null {
@@ -68,6 +101,7 @@ export function buildEventModel(records: TranscriptRecord[]): EventModel {
           uuid: record.uuid,
           at: record.timestamp ?? null,
           turnIndex,
+          preview: extractPromptPreview(record.message?.content),
         });
       } else if (isToolResultCarrier(record)) {
         const content = record.message?.content as ContentBlock[];

@@ -13,7 +13,7 @@ function makeTimeline(overrides: Partial<MergedTimeSplit> = {}): MergedTimeSplit
     spanMs: 10_000,
     toolsIncludeApprovals: true,
     precision: "derived",
-    userGapsMs: [],
+    userGaps: [],
     ...overrides,
   };
 }

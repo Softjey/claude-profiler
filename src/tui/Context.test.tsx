@@ -45,7 +45,7 @@ function makeProfile(overrides: Partial<Profile> = {}): Profile {
       spanMs: 600_000,
       toolsIncludeApprovals: true,
       precision: "derived",
-      userGapsMs: [],
+      userGaps: [],
     },
     tools: [],
     subagents: [],

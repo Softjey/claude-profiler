@@ -2,7 +2,8 @@ import { Box, Text } from "ink";
 import type { MergedTimeSplit } from "../hooks/sidecar.js";
 import { computeModelSplit } from "../metrics/model-split.js";
 import type { TokenBucket } from "../metrics/tokens.js";
-import { formatMs, formatPercent } from "./format.js";
+import type { UserGap } from "../metrics/time-split.js";
+import { formatMs, formatPercent, truncate } from "./format.js";
 
 const BAR_WIDTH = 20;
 
@@ -19,14 +20,15 @@ function bar(fraction: number, color: string): React.JSX.Element {
 export interface ModelSplitTableProps {
   modelMs: number;
   tokens: TokenBucket;
+  selectedIndex: number;
 }
 
 /**
- * Model's own drill-down (F2 follow-up): thinking vs. generation, estimated
- * from each side's share of thinking/output tokens rather than measured —
- * see `computeModelSplit` for why a real wall-clock split isn't possible.
+ * Model's own drill-down: thinking vs. generation, estimated from each
+ * side's share of thinking/output tokens rather than measured — see
+ * `computeModelSplit` for why a real wall-clock split isn't possible.
  */
-export function ModelSplitTable({ modelMs, tokens }: ModelSplitTableProps): React.JSX.Element {
+export function ModelSplitTable({ modelMs, tokens, selectedIndex }: ModelSplitTableProps): React.JSX.Element {
   const split = computeModelSplit(modelMs, tokens);
   const rows = [
     { label: "Thinking", ms: split.thinkingMs, tokens: split.thinkingTokens, color: "magenta" },
@@ -36,12 +38,15 @@ export function ModelSplitTable({ modelMs, tokens }: ModelSplitTableProps): Reac
   return (
     <Box flexDirection="column">
       <Text dimColor>estimated from each turn's share of thinking vs. output tokens, not measured</Text>
-      {rows.map((row) => {
+      {rows.map((row, i) => {
         const fraction = modelMs > 0 ? row.ms / modelMs : 0;
+        const selected = i === selectedIndex;
         return (
           <Box key={row.label}>
             <Box width={13}>
-              <Text>{row.label}</Text>
+              <Text bold={selected}>
+                {selected ? ">" : " "} {row.label}
+              </Text>
             </Box>
             {bar(fraction, row.color)}
             <Text>
@@ -55,61 +60,53 @@ export function ModelSplitTable({ modelMs, tokens }: ModelSplitTableProps): Reac
   );
 }
 
-export interface UserGapHistogramProps {
-  gapsMs: number[];
+export interface UserPromptListProps {
+  userGaps: UserGap[];
+  selectedIndex: number;
 }
 
-interface GapBucketDef {
-  label: string;
-  upperBoundMs: number | null;
-}
-
-const GAP_BUCKET_DEFS: GapBucketDef[] = [
-  { label: "<10s", upperBoundMs: 10_000 },
-  { label: "10-30s", upperBoundMs: 30_000 },
-  { label: "30s-1m", upperBoundMs: 60_000 },
-  { label: "1-5m", upperBoundMs: 5 * 60_000 },
-  { label: "5-15m", upperBoundMs: 15 * 60_000 },
-  { label: "15m+", upperBoundMs: null },
-];
+const PROMPT_PREVIEW_WIDTH = 50;
 
 /**
- * You's own drill-down: a histogram of the gap between each assistant-turn
- * end and the next user prompt (D-follow-up). Buckets are fixed, human-sized
- * ranges rather than an even split, since a handful of long breaks otherwise
- * swamp the many short back-and-forth replies.
+ * You's own drill-down: one row per prompt you sent, with how long it took
+ * you to write it (the gap between the previous reply ending and this
+ * prompt landing) — not a bucketed histogram, so a specific slow reply can
+ * actually be identified rather than just counted.
  */
-export function UserGapHistogram({ gapsMs }: UserGapHistogramProps): React.JSX.Element {
-  const buckets = GAP_BUCKET_DEFS.map((def) => ({ ...def, count: 0, totalMs: 0 }));
-  for (const gap of gapsMs) {
-    const bucket = buckets.find((b) => b.upperBoundMs === null || gap < b.upperBoundMs) ?? buckets[buckets.length - 1];
-    if (!bucket) continue;
-    bucket.count++;
-    bucket.totalMs += gap;
-  }
-  const maxCount = Math.max(1, ...buckets.map((b) => b.count));
-
-  if (gapsMs.length === 0) {
-    return <Text dimColor>No gaps between replies in this session.</Text>;
+export function UserPromptList({ userGaps, selectedIndex }: UserPromptListProps): React.JSX.Element {
+  if (userGaps.length === 0) {
+    return <Text dimColor>No prompts follow a reply in this session.</Text>;
   }
 
   return (
     <Box flexDirection="column">
       <Text dimColor>
-        {gapsMs.length} gap{gapsMs.length === 1 ? "" : "s"} between the end of a reply and your next prompt
+        {userGaps.length} prompt{userGaps.length === 1 ? "" : "s"}, in order
       </Text>
-      {buckets.map((bucket) => (
-        <Box key={bucket.label}>
-          <Box width={9}>
-            <Text>{bucket.label}</Text>
-          </Box>
-          {bar(bucket.count / maxCount, "green")}
-          <Text>
-            {" "}
-            {bucket.count} · {formatMs(bucket.totalMs)}
-          </Text>
+      <Box>
+        <Box width={PROMPT_PREVIEW_WIDTH + 2}>
+          <Text bold>Prompt</Text>
         </Box>
-      ))}
+        <Box width={10}>
+          <Text bold>Took</Text>
+        </Box>
+      </Box>
+      {userGaps.map((gap, i) => {
+        const selected = i === selectedIndex;
+        const color = selected ? "cyan" : "white";
+        return (
+          <Box key={`${i}-${gap.preview}`}>
+            <Box width={PROMPT_PREVIEW_WIDTH + 2} flexShrink={0}>
+              <Text color={color} wrap="truncate-end">
+                {selected ? ">" : " "} {truncate(gap.preview, PROMPT_PREVIEW_WIDTH)}
+              </Text>
+            </Box>
+            <Box width={10} flexShrink={0}>
+              <Text color={color}>{formatMs(gap.gapMs)}</Text>
+            </Box>
+          </Box>
+        );
+      })}
     </Box>
   );
 }
