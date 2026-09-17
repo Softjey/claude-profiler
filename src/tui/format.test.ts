@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatCostUSD, formatDateTime, formatMs, formatPercent, truncate } from "./format.js";
+import { formatCostUSD, formatDateTime, formatMs, formatPercent, summarizeInput, truncate } from "./format.js";
 
 describe("formatMs", () => {
   it("renders sub-second durations in ms", () => {
@@ -49,5 +49,32 @@ describe("truncate", () => {
 
   it("truncates with an ellipsis", () => {
     expect(truncate("abcdefghij", 5)).toBe("abcd…");
+  });
+});
+
+describe("summarizeInput", () => {
+  it("collapses a single-field object to its bare value", () => {
+    expect(summarizeInput('{"command":"pnpm verify"}')).toBe("pnpm verify");
+  });
+
+  it("joins multiple fields as key=value pairs", () => {
+    expect(summarizeInput('{"file_path":"a.ts","limit":10}')).toBe("file_path=a.ts limit=10");
+  });
+
+  it("stringifies non-string single-field values", () => {
+    expect(summarizeInput('{"count":3}')).toBe("3");
+  });
+
+  it("renders an empty object as {}", () => {
+    expect(summarizeInput("{}")).toBe("{}");
+  });
+
+  it("falls back to the raw text for non-object JSON", () => {
+    expect(summarizeInput('"just a string"')).toBe('"just a string"');
+    expect(summarizeInput("[1,2,3]")).toBe("[1,2,3]");
+  });
+
+  it("falls back to the raw text when JSON parsing fails", () => {
+    expect(summarizeInput('{"command":"trunc')).toBe('{"command":"trunc');
   });
 });

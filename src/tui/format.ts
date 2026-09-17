@@ -34,6 +34,34 @@ export function truncate(text: string, maxChars: number): string {
   return text.length > maxChars ? `${text.slice(0, maxChars - 1)}…` : text;
 }
 
+function stringifyInputValue(value: unknown): string {
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+/**
+ * Flattens a call's minified-JSON inputPreview into a single readable line
+ * for list rows (CallList's Input column), stripping the `{"key":"value"}`
+ * punctuation that made every row look identical noise. A single-field input
+ * (the common case — Bash's `command`, Read's `file_path`, …) collapses to
+ * just its value; multiple fields join as `key=value key2=value2`. Falls
+ * back to the raw preview whenever it isn't a JSON object (already-truncated
+ * JSON, or a tool with a bare string/array input).
+ */
+export function summarizeInput(inputPreview: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(inputPreview);
+  } catch {
+    return inputPreview;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return inputPreview;
+
+  const entries = Object.entries(parsed as Record<string, unknown>);
+  if (entries.length === 0) return "{}";
+  if (entries.length === 1) return stringifyInputValue(entries[0]![1]);
+  return entries.map(([key, value]) => `${key}=${stringifyInputValue(value)}`).join(" ");
+}
+
 export function formatCount(n: number): string {
   if (n < 1000) return `${Math.round(n)}`;
   if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
