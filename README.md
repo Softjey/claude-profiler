@@ -106,9 +106,10 @@ measured wall-clock per stage — not `modelMs` split by token share:
 
 ```
 measured from per-block record timestamps · 83 requests, 68 written as more than one block
-> Reading context + 1st block ███████████████░░░░░ 78.1% (5h16m, 83 slices)
-  Thinking                    ░░░░░░░░░░░░░░░░░░░░  0.2% (49s, 4 slices)
-  Generating                  ████░░░░░░░░░░░░░░░░ 21.7% (1h28m, 120 slices)
+> Reading context + 1st block    ███████████████░░░░░ 78.1% (5h16m, 83 slices)
+      61 of those began by thinking (4h02m) · 22 went straight to output (1h14m)
+  Thinking, after the 1st block  ░░░░░░░░░░░░░░░░░░░░  0.2% (49s, 4 slices)
+  Generating, after the 1st block ████░░░░░░░░░░░░░░░ 21.7% (1h28m, 120 slices)
   the first row also holds the API queue and the first block's own output:
   a block is timestamped at its end, so those cannot be told apart
 
@@ -120,8 +121,14 @@ measured from per-block record timestamps · 83 requests, 68 written as more tha
 
 The first row is the one to read carefully. A request's leading slice covers the API queue,
 reading the (often 200k-token) prompt back in, and the first block the model produced, and a
-block carries only its *end* timestamp — so no honest line can be drawn between them. It is
-named for the part that usually dominates it rather than for the block kind that closed it.
+block carries only its *end* timestamp — so no honest line can be drawn between them.
+
+That is also why the other two rows say "after the 1st block". Thinking is nearly always a
+request's *first* block, so almost all of it is inside row one; the `Thinking` row counts only
+thinking that followed a recorded block boundary, which is rare. Unqualified it would read as
+"the model never thought" on a session that thought in half its requests — hence the indented
+line, which says how much of row one began by thinking.
+
 The underlying six-cell grid (thinking/text/tool_use × first/later) is still in the JSON
 artifact under `modelBreakdown.phases`.
 

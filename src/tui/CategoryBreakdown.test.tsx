@@ -48,13 +48,21 @@ describe("ModelBreakdownTable", () => {
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("Reading context + 1st block");
-    expect(frame).toContain("Thinking");
-    expect(frame).toContain("Generating");
+    // Qualified, so a 0.0% row is not read as "the model never thought".
+    expect(frame).toContain("Thinking, after the 1st block");
+    expect(frame).toContain("Generating, after the 1st block");
     // The first-block phase, whatever its kind, is the reading row.
     expect(frame).toContain("75.0%");
     expect(frame).toContain("measured from per-block record timestamps");
     // The caveat the position axis existed for has to survive the collapse.
     expect(frame).toContain("timestamped at its end");
+  });
+
+  it("says how much of the leading slice began by thinking, since that row hides it", () => {
+    const { lastFrame } = render(
+      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), selectedIndex: 0, active: true }),
+    );
+    expect(lastFrame() ?? "").toContain("3 of those began by thinking");
   });
 
   it("keeps a stage with no time as a visible zero rather than dropping the row", () => {

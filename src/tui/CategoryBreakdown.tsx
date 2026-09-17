@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 import type { MergedTimeSplit } from "../hooks/sidecar.js";
-import { collapsePhases, type ModelBreakdown, type ModelStage } from "../metrics/model-breakdown.js";
+import { collapsePhases, leadingMix, type ModelBreakdown, type ModelStage } from "../metrics/model-breakdown.js";
 import type { UserGap } from "../metrics/time-split.js";
 import { formatCount, formatMs, formatPercent, truncate } from "./format.js";
 
@@ -19,8 +19,11 @@ function bar(fraction: number, color: string): React.JSX.Element {
 
 const STAGE_LABELS: Record<ModelStage, string> = {
   reading: "Reading context + 1st block",
-  thinking: "Thinking",
-  generating: "Generating",
+  // Qualified on purpose: these two count only what followed a recorded block
+  // boundary. Unqualified, a session whose thinking is all first-block reads
+  // as "Thinking 0.0%" — that the model never thought, which is false.
+  thinking: "Thinking, after the 1st block",
+  generating: "Generating, after the 1st block",
 };
 
 const STAGE_COLORS: Record<ModelStage, string> = {
@@ -29,7 +32,7 @@ const STAGE_COLORS: Record<ModelStage, string> = {
   generating: "cyan",
 };
 
-const STAGE_LABEL_WIDTH = 30;
+const STAGE_LABEL_WIDTH = 34;
 
 export interface ModelBreakdownTableProps {
   breakdown: ModelBreakdown;
@@ -65,6 +68,7 @@ export function ModelBreakdownTable({
   }
 
   const stages = collapsePhases(phases, totalMs);
+  const mix = leadingMix(phases);
 
   return (
     <Box flexDirection="column">
@@ -75,18 +79,27 @@ export function ModelBreakdownTable({
       {stages.map((stage, i) => {
         const selected = active && i === selectedIndex;
         return (
-          <Box key={stage.stage}>
-            <Box width={STAGE_LABEL_WIDTH} flexShrink={0}>
-              <Text bold={selected} wrap="truncate-end">
-                {selected ? ">" : " "} {STAGE_LABELS[stage.stage]}
+          <Box key={stage.stage} flexDirection="column">
+            <Box>
+              <Box width={STAGE_LABEL_WIDTH} flexShrink={0}>
+                <Text bold={selected} wrap="truncate-end">
+                  {selected ? ">" : " "} {STAGE_LABELS[stage.stage]}
+                </Text>
+              </Box>
+              {bar(stage.pctOfModel, STAGE_COLORS[stage.stage])}
+              <Text>
+                {" "}
+                {formatPercent(stage.pctOfModel)} ({formatMs(stage.ms)}, {stage.slices} slice
+                {stage.slices === 1 ? "" : "s"})
               </Text>
             </Box>
-            {bar(stage.pctOfModel, STAGE_COLORS[stage.stage])}
-            <Text>
-              {" "}
-              {formatPercent(stage.pctOfModel)} ({formatMs(stage.ms)}, {stage.slices} slice
-              {stage.slices === 1 ? "" : "s"})
-            </Text>
+            {stage.stage === "reading" ? (
+              <Text dimColor>
+                {"      "}
+                {mix.thinkingSlices} of those began by thinking ({formatMs(mix.thinkingMs)}) · {mix.outputSlices} went
+                straight to output ({formatMs(mix.outputMs)})
+              </Text>
+            ) : null}
           </Box>
         );
       })}

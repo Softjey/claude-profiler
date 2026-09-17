@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildEventModel } from "../model/build-model.js";
 import type { TranscriptRecord } from "../parse/types.js";
-import { collapsePhases, computeModelBreakdown, type ModelPhase } from "./model-breakdown.js";
+import { collapsePhases, computeModelBreakdown, leadingMix, type ModelPhase } from "./model-breakdown.js";
 import { computeTimeSplit } from "./time-split.js";
 
 function userPrompt(uuid: string, timestamp: string, content = "hi"): TranscriptRecord {
@@ -337,5 +337,28 @@ describe("collapsePhases", () => {
 
   it("returns all three stages in pipeline order even with nothing to show", () => {
     expect(collapsePhases([], 0).map((stage) => stage.stage)).toEqual(["reading", "thinking", "generating"]);
+  });
+});
+
+describe("leadingMix", () => {
+  const phases: ModelPhase[] = [
+    { kind: "thinking", position: "first", ms: 300, pctOfModel: 0.3, slices: 3 },
+    { kind: "tool_use", position: "first", ms: 200, pctOfModel: 0.2, slices: 2 },
+    { kind: "text", position: "first", ms: 100, pctOfModel: 0.1, slices: 1 },
+    { kind: "tool_use", position: "continuation", ms: 400, pctOfModel: 0.4, slices: 4 },
+  ];
+
+  it("separates the leading slices that were thinking from the ones that went straight to output", () => {
+    expect(leadingMix(phases)).toEqual({
+      thinkingMs: 300,
+      thinkingSlices: 3,
+      outputMs: 300,
+      outputSlices: 3,
+    });
+  });
+
+  it("ignores continuation slices, which the other two rows already count", () => {
+    const mix = leadingMix(phases);
+    expect(mix.thinkingMs + mix.outputMs).toBe(600);
   });
 });

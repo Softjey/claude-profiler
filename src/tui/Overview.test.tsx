@@ -128,7 +128,7 @@ describe("OverviewScreen", () => {
     const { lastFrame } = renderOverview(makeProfile());
     const frame = lastFrame() ?? "";
     expect(frame).toContain("Reading context + 1st block");
-    expect(frame).toContain("Generating");
+    expect(frame).toContain("Generating, after the 1st block");
     expect(frame).toContain("measured from per-block record timestamps");
   });
 
@@ -261,6 +261,6 @@ describe("OverviewScreen", () => {
     await tick();
     const frame = lastFrame() ?? "";
     expect(frame).toContain("Reading context + 1st block");
-    expect(frame).toContain("Generating");
+    expect(frame).toContain("Generating, after the 1st block");
   });
 });

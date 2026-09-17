@@ -493,3 +493,33 @@ export function collapsePhases(phases: ModelPhase[], totalMs: number): ModelStag
     return { ...slice, pctOfModel: totalMs > 0 ? slice.ms / totalMs : 0 };
   });
 }
+
+export interface LeadingMix {
+  /** Leading slices whose block was thinking: thinking time that is real but unmeasurable. */
+  thinkingMs: number;
+  thinkingSlices: number;
+  /** Leading slices that went straight to text or a tool call. */
+  outputMs: number;
+  outputSlices: number;
+}
+
+/**
+ * What the leading slices were doing, for the one line the `reading` row owes
+ * the reader. Without it "Thinking 0.0%" is read as "the model never thought"
+ * when in fact almost all thinking is a request's first block and is sitting
+ * inside `reading` — the collapse hid the very thing it was meant to clarify.
+ */
+export function leadingMix(phases: ModelPhase[]): LeadingMix {
+  const mix: LeadingMix = { thinkingMs: 0, thinkingSlices: 0, outputMs: 0, outputSlices: 0 };
+  for (const phase of phases) {
+    if (phase.position !== "first") continue;
+    if (phase.kind === "thinking") {
+      mix.thinkingMs += phase.ms;
+      mix.thinkingSlices += phase.slices;
+    } else {
+      mix.outputMs += phase.ms;
+      mix.outputSlices += phase.slices;
+    }
+  }
+  return mix;
+}
