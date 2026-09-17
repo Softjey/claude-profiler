@@ -14,11 +14,13 @@
   "engines": {
     "node": ">=20"
   },
+  "packageManager": "pnpm@12.4.2",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "verify": "pnpm run build && pnpm run test"
   },
   "dependencies": {
     "ink": "^7.1.1",
