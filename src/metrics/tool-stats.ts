@@ -1,5 +1,5 @@
 import type { ToolUseEvent } from "../model/events.js";
-import { computeBashGroups, type BashGroupStat } from "./bash-groups.js";
+import { computeBashCommandGroups, computeBashGroups, type BashGroupStat } from "./bash-groups.js";
 import { median, percentile } from "./percentiles.js";
 
 export type ToolKind = "builtin" | "mcp" | "task";
@@ -26,8 +26,17 @@ export interface ToolStat {
   unfinishedCount: number;
   pctOfSession: number;
   callRefs: ToolCall[];
-  /** Only populated for `name === "Bash"`: per-command-group breakdown (T-bash-groups). */
+  /**
+   * Only populated for `name === "Bash"`: the calls grouped by recipe — the
+   * set of real commands each call ran — reconciling to this tool's own total.
+   */
   bashGroups?: BashGroupStat[];
+  /**
+   * Only populated for `name === "Bash"`: the same calls keyed by individual
+   * command, each counted towards every command it ran. Deliberately
+   * over-sums; see `computeBashCommandGroups`.
+   */
+  bashCommands?: BashGroupStat[];
 }
 
 // Large enough that the call-detail pane's JSON.parse succeeds on realistic
@@ -103,7 +112,9 @@ export function computeToolStats(toolUses: ToolUseEvent[], spanMs: number): Tool
       unfinishedCount,
       pctOfSession: spanMs > 0 ? totalMs / spanMs : 0,
       callRefs,
-      ...(name === "Bash" ? { bashGroups: computeBashGroups(events) } : {}),
+      ...(name === "Bash"
+        ? { bashGroups: computeBashGroups(events), bashCommands: computeBashCommandGroups(events) }
+        : {}),
     });
   }
 

@@ -6,8 +6,9 @@ import type { Profile } from "../artifact/profile.js";
 import type { ExactToolStat } from "../hooks/sidecar.js";
 import type { ToolCall } from "../metrics/tool-stats.js";
 import type { SubagentStat } from "../metrics/subagent-stats.js";
+import type { BashGroupStat } from "../metrics/bash-groups.js";
 import { useNavStack } from "./shell.js";
-import { toolDetailScreen } from "./ToolDetail.js";
+import { FIXED_COLUMNS_WIDTH, nameColumnWidth, toolDetailScreen } from "./ToolDetail.js";
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
 
@@ -212,6 +213,38 @@ describe("ToolDetailScreen", () => {
     expect(lastFrame()).toContain("toolu_fast");
   });
 
+  describe("nameColumnWidth", () => {
+    const group = (name: string): BashGroupStat => ({
+      group: name,
+      calls: 1,
+      totalMs: 1,
+      medianMs: 1,
+      maxMs: 1,
+      unfinishedCount: 0,
+      pctOfBash: 1,
+      callIds: ["x"],
+    });
+
+    it("takes what the longest row needs, plus room for the selection marker", () => {
+      const longest = "python3 + git add + git commit + git log + head";
+      expect(nameColumnWidth([group(longest), group("cat")], 200)).toBe(longest.length + 2);
+    });
+
+    it("does not shrink below the floor for a table of short names", () => {
+      expect(nameColumnWidth([group("cat"), group("grep")], 200)).toBe(24);
+    });
+
+    it("never spills past what the terminal has left for it", () => {
+      const wide = nameColumnWidth([group("a".repeat(120))], 80);
+      expect(wide).toBe(80 - FIXED_COLUMNS_WIDTH);
+      expect(wide + FIXED_COLUMNS_WIDTH).toBeLessThanOrEqual(80);
+    });
+
+    it("keeps a floor so a narrow terminal still shows a readable name", () => {
+      expect(nameColumnWidth([group("a".repeat(120))], 20)).toBe(24);
+    });
+  });
+
   function makeBashGroupsTool(): ExactToolStat {
     return makeTool({
       name: "Bash",
@@ -245,10 +278,32 @@ describe("ToolDetailScreen", () => {
           callIds: ["toolu_git"],
         },
       ],
+      bashCommands: [
+        {
+          group: "pnpm test",
+          calls: 1,
+          totalMs: 1_064_111,
+          medianMs: 1_064_111,
+          maxMs: 1_064_111,
+          unfinishedCount: 0,
+          pctOfBash: 0.999,
+          callIds: ["toolu_pnpm"],
+        },
+        {
+          group: "git status",
+          calls: 1,
+          totalMs: 749,
+          medianMs: 749,
+          maxMs: 749,
+          unfinishedCount: 0,
+          pctOfBash: 0.001,
+          callIds: ["toolu_git"],
+        },
+      ],
     });
   }
 
-  it("does not offer a By command view for a Bash tool with at most one group", () => {
+  it("does not offer the grouped views for a Bash tool with at most one group", () => {
     const tool = makeTool({ name: "Bash", bashGroups: [] });
     const { lastFrame } = renderToolDetail(tool, makeProfile());
     expect(lastFrame()).not.toContain("By command");
@@ -277,7 +332,7 @@ describe("ToolDetailScreen", () => {
     const tool = makeBashGroupsTool();
     const { lastFrame, stdin } = renderToolDetail(tool, makeProfile());
 
-    // already on the By command view (default), top row selected (pnpm — sorted by totalMs desc)
+    // already on the By recipe view (default), top row selected (pnpm — sorted by totalMs desc)
     stdin.write("\r"); // drill into the pnpm group
     await tick();
 

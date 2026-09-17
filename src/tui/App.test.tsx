@@ -172,6 +172,10 @@ describe("App", () => {
           { group: "pnpm", calls: 1, totalMs: 1000, medianMs: 1000, maxMs: 1000, unfinishedCount: 0, pctOfBash: 0.9, callIds: ["toolu_pnpm"] },
           { group: "git", calls: 1, totalMs: 100, medianMs: 100, maxMs: 100, unfinishedCount: 0, pctOfBash: 0.1, callIds: ["toolu_git"] },
         ],
+        bashCommands: [
+          { group: "pnpm test", calls: 1, totalMs: 1000, medianMs: 1000, maxMs: 1000, unfinishedCount: 0, pctOfBash: 0.9, callIds: ["toolu_pnpm"] },
+          { group: "git status", calls: 1, totalMs: 100, medianMs: 100, maxMs: 100, unfinishedCount: 0, pctOfBash: 0.1, callIds: ["toolu_git"] },
+        ],
         callRefs: [
           { id: "toolu_pnpm", name: "Bash", turnIndex: 0, startedAt: null, durationMs: 1000, inputPreview: '{"command":"pnpm test"}' },
           { id: "toolu_git", name: "Bash", turnIndex: 0, startedAt: null, durationMs: 100, inputPreview: '{"command":"git status"}' },
