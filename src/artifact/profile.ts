@@ -65,7 +65,8 @@ function buildSessionMeta(
 ): SessionMeta {
   let projectPath: string | undefined;
   let gitBranch: string | undefined;
-  let title: string | undefined;
+  let aiTitle: string | undefined;
+  let customTitle: string | undefined;
   let isSidechain = false;
   const ccVersions = new Set<string>();
   let minMs: number | null = null;
@@ -76,7 +77,8 @@ function buildSessionMeta(
     if (gitBranch === undefined && record.gitBranch !== undefined) gitBranch = record.gitBranch;
     if (record.version !== undefined) ccVersions.add(record.version);
     if (record.isSidechain) isSidechain = true;
-    if (record.type === "ai-title" && record.title) title = record.title;
+    if (record.type === "ai-title" && record.aiTitle) aiTitle = record.aiTitle;
+    if (record.type === "custom-title" && record.customTitle) customTitle = record.customTitle;
 
     if (record.timestamp) {
       const ms = Date.parse(record.timestamp);
@@ -86,6 +88,8 @@ function buildSessionMeta(
       }
     }
   }
+
+  const title = customTitle ?? aiTitle;
 
   const models = new Set<string>();
   let turnCount = 0;

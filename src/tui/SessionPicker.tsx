@@ -28,12 +28,12 @@ function formatSize(bytes: number): string {
 }
 
 function formatDate(date: Date): string {
-  return date.toISOString().slice(0, 16).replace("T", " ");
+  return date.toISOString().slice(0, 19).replace("T", " ");
 }
 
-const PATH_WIDTH = 32;
-const TITLE_WIDTH = 36;
-const DATE_WIDTH = 16;
+const PATH_WIDTH = 38;
+const TITLE_WIDTH = 32;
+const DATE_WIDTH = 19;
 const SIZE_WIDTH = 6;
 const TURNS_WIDTH = 5;
 
@@ -41,12 +41,16 @@ interface Column {
   header: string;
   width: number;
   value: (candidate: SessionListing) => string;
+  // Paths repeat the same long prefix (/Users/name/...) across rows; the
+  // part that actually differs is the tail, so truncate from the front
+  // instead of Text's usual truncate-end.
+  wrap?: "truncate-start" | "truncate-end";
 }
 
 const COLUMNS: Column[] = [
-  { header: "Path", width: PATH_WIDTH, value: (c) => c.cwd ?? "(unknown)" },
+  { header: "Path", width: PATH_WIDTH, value: (c) => c.cwd ?? "(unknown)", wrap: "truncate-start" },
   { header: "Title", width: TITLE_WIDTH, value: (c) => c.title ?? "(no title)" },
-  { header: "Date", width: DATE_WIDTH, value: (c) => formatDate(c.date) },
+  { header: "Last active", width: DATE_WIDTH, value: (c) => formatDate(c.date) },
   { header: "Size", width: SIZE_WIDTH, value: (c) => formatSize(c.sizeBytes) },
   { header: "Turns", width: TURNS_WIDTH, value: (c) => String(c.turnCount) },
 ];
@@ -68,7 +72,7 @@ function Row({
       </Text>
       {COLUMNS.map((col, i) => (
         <Box key={col.header} width={col.width} marginRight={2}>
-          <Text {...(color ? { color } : {})} bold={bold} wrap="truncate-end">
+          <Text {...(color ? { color } : {})} bold={bold} wrap={col.wrap ?? "truncate-end"}>
             {cells[i]}
           </Text>
         </Box>

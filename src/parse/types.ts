@@ -119,7 +119,12 @@ export interface LastPromptRecord extends TranscriptRecordBase {
 
 export interface AiTitleRecord extends TranscriptRecordBase {
   type: "ai-title";
-  title?: string;
+  aiTitle?: string;
+}
+
+export interface CustomTitleRecord extends TranscriptRecordBase {
+  type: "custom-title";
+  customTitle?: string;
 }
 
 export interface FileHistorySnapshotRecord extends TranscriptRecordBase {
@@ -174,6 +179,7 @@ export const KNOWN_RECORD_TYPES = [
   "mode",
   "last-prompt",
   "ai-title",
+  "custom-title",
   "file-history-snapshot",
   "file-history-delta",
   "cost-state",
@@ -192,6 +198,7 @@ export type TranscriptRecord =
   | ModeRecord
   | LastPromptRecord
   | AiTitleRecord
+  | CustomTitleRecord
   | FileHistorySnapshotRecord
   | FileHistoryDeltaRecord
   | CostStateRecord

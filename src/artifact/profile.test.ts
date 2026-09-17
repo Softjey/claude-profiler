@@ -67,7 +67,7 @@ describe("buildProfile", () => {
           content: [{ type: "text", text: "done" }],
         },
       },
-      { type: "ai-title", uuid: "t1", timestamp: iso(2100), title: "Do the thing" },
+      { type: "ai-title", uuid: "t1", timestamp: iso(2100), aiTitle: "Do the thing" },
     ];
 
     await writeFile(transcriptPath, records.map(line).join(""));

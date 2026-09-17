@@ -12,15 +12,26 @@ function makeCandidate(overrides: Partial<SessionListing>): SessionListing {
     date: new Date("2026-01-01T00:00:00Z"),
     sizeBytes: 1024,
     turnCount: 5,
+    title: "Fix the login bug",
     ...overrides,
   };
 }
 
 describe("SessionPicker", () => {
-  it("lists every candidate with project path, date, size and turn count", () => {
+  it("lists every candidate as a table with path, title, date, size and turn count", () => {
     const candidates = [
-      makeCandidate({ filePath: "/tmp/a.jsonl", cwd: "/Users/me/project-a", turnCount: 5 }),
-      makeCandidate({ filePath: "/tmp/b.jsonl", cwd: "/Users/me/project-b", turnCount: 9 }),
+      makeCandidate({
+        filePath: "/tmp/a.jsonl",
+        cwd: "/Users/me/project-a",
+        turnCount: 5,
+        title: "Fix the login bug",
+      }),
+      makeCandidate({
+        filePath: "/tmp/b.jsonl",
+        cwd: "/Users/me/project-b",
+        turnCount: 9,
+        title: "Add dark mode",
+      }),
     ];
 
     const { lastFrame } = render(
@@ -30,8 +41,9 @@ describe("SessionPicker", () => {
     const frame = lastFrame();
     expect(frame).toContain("/Users/me/project-a");
     expect(frame).toContain("/Users/me/project-b");
-    expect(frame).toContain("5 turns");
-    expect(frame).toContain("9 turns");
+    expect(frame).toContain("Fix the login bug");
+    expect(frame).toContain("Add dark mode");
+    expect(frame).not.toContain("[-Users-me-project-a]");
   });
 
   const tick = () => new Promise((resolve) => setTimeout(resolve, 20));

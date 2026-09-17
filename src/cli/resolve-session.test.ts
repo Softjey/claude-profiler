@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resolveSession } from "./resolve-session.js";
+import { looksLikeSessionId, resolveSession } from "./resolve-session.js";
 
 function line(record: Record<string, unknown>): string {
   return `${JSON.stringify(record)}\n`;
@@ -122,5 +122,72 @@ describe("resolveSession", () => {
     const result = await resolveSession("nope", projectsDir);
 
     expect(result).toEqual({ status: "not-found", id: "nope" });
+  });
+
+  it("resolves a chat title by searching file content", async () => {
+    const dir = join(projectsDir, "-Users-me-project-a");
+    await mkdir(dir, { recursive: true });
+    const id = "54fd3ef0-3d6f-48d5-8e4b-41bf3a8d13d8";
+    await writeFile(
+      join(dir, `${id}.jsonl`),
+      line({ type: "system", cwd: "/Users/me/project-a" }) +
+        line({ type: "summary", summary: "Збереження 115 вакансій у LinkedIn та OneTap (fork)" }),
+    );
+
+    const result = await resolveSession("Збереження 115 вакансій у LinkedIn та OneTap (fork)", projectsDir);
+
+    expect(result.status).toBe("found");
+    if (result.status === "found") {
+      expect(result.id).toBe(id);
+    }
+  });
+
+  it("reports ambiguous when the same title appears in two sessions", async () => {
+    const dirA = join(projectsDir, "-Users-me-project-a");
+    const dirB = join(projectsDir, "-Users-me-project-b");
+    await mkdir(dirA, { recursive: true });
+    await mkdir(dirB, { recursive: true });
+    await writeFile(
+      join(dirA, "aaaaaaaa-3d6f-48d5-8e4b-41bf3a8d13d8.jsonl"),
+      line({ type: "summary", summary: "OneTap fork" }),
+    );
+    await writeFile(
+      join(dirB, "bbbbbbbb-3d6f-48d5-8e4b-41bf3a8d13d8.jsonl"),
+      line({ type: "summary", summary: "OneTap fork" }),
+    );
+
+    const result = await resolveSession("OneTap fork", projectsDir);
+
+    expect(result.status).toBe("ambiguous");
+    if (result.status === "ambiguous") {
+      expect(result.candidates).toHaveLength(2);
+    }
+  });
+
+  it("returns not-found when no session content matches the title", async () => {
+    const dir = join(projectsDir, "-Users-me-project-a");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "54fd3ef0-3d6f-48d5-8e4b-41bf3a8d13d8.jsonl"),
+      line({ type: "summary", summary: "something else" }),
+    );
+
+    const result = await resolveSession("no such chat title", projectsDir);
+
+    expect(result).toEqual({ status: "not-found", id: "no such chat title" });
+  });
+});
+
+describe("looksLikeSessionId", () => {
+  it("recognizes uuids, prefixes, and agent-* names", () => {
+    expect(looksLikeSessionId("54fd3ef0-3d6f-48d5-8e4b-41bf3a8d13d8")).toBe(true);
+    expect(looksLikeSessionId("54fd3ef0")).toBe(true);
+    expect(looksLikeSessionId("agent-aadca07036a7c5ccd")).toBe(true);
+  });
+
+  it("rejects chat titles", () => {
+    expect(looksLikeSessionId("Збереження 115 вакансій у LinkedIn та OneTap (fork)")).toBe(false);
+    expect(looksLikeSessionId("Fix the login bug")).toBe(false);
+    expect(looksLikeSessionId("nope")).toBe(false);
   });
 });
