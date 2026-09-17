@@ -42,15 +42,28 @@ function makeTimeline(overrides: Partial<MergedTimeSplit> = {}): MergedTimeSplit
 }
 
 describe("ModelBreakdownTable", () => {
-  it("labels each phase by what the model was doing and when in the request", () => {
+  it("shows the three stages of a request, with the leading slice named for what dominates it", () => {
     const { lastFrame } = render(
       createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), selectedIndex: 0, active: true }),
     );
     const frame = lastFrame() ?? "";
-    expect(frame).toContain("Thinking (1st block)");
-    expect(frame).toContain("Writing text (later)");
+    expect(frame).toContain("Reading context + 1st block");
+    expect(frame).toContain("Thinking");
+    expect(frame).toContain("Generating");
+    // The first-block phase, whatever its kind, is the reading row.
     expect(frame).toContain("75.0%");
     expect(frame).toContain("measured from per-block record timestamps");
+    // The caveat the position axis existed for has to survive the collapse.
+    expect(frame).toContain("timestamped at its end");
+  });
+
+  it("keeps a stage with no time as a visible zero rather than dropping the row", () => {
+    const { lastFrame } = render(
+      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), selectedIndex: 0, active: true }),
+    );
+    // The fixture never thinks after its first block: that is a finding, not
+    // a missing row.
+    expect((lastFrame() ?? "").split("\n").find((l) => l.includes("Thinking"))).toContain("0.0%");
   });
 
   it("says how many requests the split actually rests on", () => {
@@ -65,8 +78,8 @@ describe("ModelBreakdownTable", () => {
       createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), selectedIndex: 1, active: true }),
     );
     const lines = (lastFrame() ?? "").split("\n");
-    expect(lines.find((l) => l.includes("Writing text"))).toContain(">");
-    expect(lines.find((l) => l.includes("Thinking"))).not.toContain(">");
+    expect(lines.find((l) => l.includes("Thinking"))).toContain(">");
+    expect(lines.find((l) => l.includes("Generating"))).not.toContain(">");
   });
 
   it("calls out the time in the bucket that is not the model working", () => {

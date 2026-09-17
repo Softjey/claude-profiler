@@ -5,6 +5,7 @@ import { registerTab } from "./shell.js";
 import { CATEGORY_KEYS, TimeSplitBar, type Category } from "./TimeSplitBar.js";
 import { ModelBreakdownTable, UnaccountedBreakdown, UserPromptList } from "./CategoryBreakdown.js";
 import { modelRequestsScreen } from "./ModelRequests.js";
+import { collapsePhases } from "../metrics/model-breakdown.js";
 import { ToolTable, SORT_KEYS, sortTools, type SortKey } from "./ToolTable.js";
 import { toolDetailScreen } from "./ToolDetail.js";
 import { promptDetailScreen } from "./PromptDetail.js";
@@ -66,8 +67,13 @@ export function OverviewScreen({ profile, nav }: ScreenProps): React.JSX.Element
       } else if (category === "tools") {
         nav.setSelection(rows.length === 0 ? 0 : (selectedIndex + delta + rows.length) % rows.length);
       } else if (category === "model") {
-        const phaseCount = profile.modelBreakdown.phases.length;
-        setModelSelection((s) => (phaseCount === 0 ? 0 : (s + delta + phaseCount) % phaseCount));
+        // The table shows the collapsed stages, not the raw phase grid, so
+        // the cursor has to count the same rows the screen does.
+        const stageCount =
+          profile.modelBreakdown.phases.length === 0
+            ? 0
+            : collapsePhases(profile.modelBreakdown.phases, profile.modelBreakdown.totalMs).length;
+        setModelSelection((s) => (stageCount === 0 ? 0 : (s + delta + stageCount) % stageCount));
       } else if (category === "you") {
         const gapCount = profile.timeline.userGaps.length;
         setYouSelection((s) => (gapCount === 0 ? 0 : (s + delta + gapCount) % gapCount));
@@ -91,7 +97,7 @@ export function OverviewScreen({ profile, nav }: ScreenProps): React.JSX.Element
         const gap = profile.timeline.userGaps[youSelection];
         if (gap) nav.push(promptDetailScreen(gap, youSelection, profile.timeline.userGaps.length));
       } else if (category === "model") {
-        // Any phase row opens the same screen: the phases say what the time
+        // Any stage row opens the same screen: the stages say what the time
         // went on, the request list says which calls it went on, and only the
         // second one can be acted on.
         nav.push(modelRequestsScreen(profile.modelBreakdown));

@@ -439,3 +439,57 @@ export function computeModelBreakdown(events: ModelEvent[], toolUses: ToolUseEve
     precision: "measured",
   };
 }
+
+/**
+ * The three stages the TUI shows instead of the six raw `phases` rows
+ * (kind × position). The full grid stays in `phases` and in the JSON
+ * artifact; this is the reading of it.
+ *
+ * - `reading` is every `position: "first"` slice, whatever its kind. A
+ *   request's leading slice is the API queue, reading the prompt back in,
+ *   and the first block's own generation, and the transcript timestamps the
+ *   block's end, so no honest line can be drawn between them. Naming the
+ *   stage after the part that usually dominates it — a 200k-token prompt
+ *   read back in — beats naming it after the block kind that happened to
+ *   close it.
+ * - `thinking` and `generating` are the `continuation` slices, which start
+ *   after a block boundary the transcript actually recorded, so they are
+ *   the model working and nothing else.
+ */
+export type ModelStage = "reading" | "thinking" | "generating";
+
+export interface ModelStageSlice {
+  stage: ModelStage;
+  ms: number;
+  pctOfModel: number;
+  slices: number;
+}
+
+/** Pipeline order, not largest-first: these are stages of one request. */
+const STAGE_ORDER: ModelStage[] = ["reading", "thinking", "generating"];
+
+function stageOf(phase: ModelPhase): ModelStage {
+  if (phase.position === "first") return "reading";
+  return phase.kind === "thinking" ? "thinking" : "generating";
+}
+
+/**
+ * Always returns all three stages, in pipeline order, even at zero: a
+ * session that never thought after its first block is saying something, and
+ * a row that disappears says it less clearly than a row reading 0.0%.
+ */
+export function collapsePhases(phases: ModelPhase[], totalMs: number): ModelStageSlice[] {
+  const byStage = new Map<ModelStage, ModelStageSlice>(
+    STAGE_ORDER.map((stage) => [stage, { stage, ms: 0, pctOfModel: 0, slices: 0 }]),
+  );
+  for (const phase of phases) {
+    const slice = byStage.get(stageOf(phase));
+    if (!slice) continue;
+    slice.ms += phase.ms;
+    slice.slices += phase.slices;
+  }
+  return STAGE_ORDER.map((stage) => {
+    const slice = byStage.get(stage) ?? { stage, ms: 0, pctOfModel: 0, slices: 0 };
+    return { ...slice, pctOfModel: totalMs > 0 ? slice.ms / totalMs : 0 };
+  });
+}

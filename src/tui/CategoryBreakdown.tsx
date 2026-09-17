@@ -1,7 +1,6 @@
 import { Box, Text } from "ink";
 import type { MergedTimeSplit } from "../hooks/sidecar.js";
-import type { BlockKind } from "../model/events.js";
-import type { ModelBreakdown, PhasePosition } from "../metrics/model-breakdown.js";
+import { collapsePhases, type ModelBreakdown, type ModelStage } from "../metrics/model-breakdown.js";
 import type { UserGap } from "../metrics/time-split.js";
 import { formatCount, formatMs, formatPercent, truncate } from "./format.js";
 
@@ -18,26 +17,19 @@ function bar(fraction: number, color: string): React.JSX.Element {
   );
 }
 
-const KIND_LABELS: Record<BlockKind, string> = {
+const STAGE_LABELS: Record<ModelStage, string> = {
+  reading: "Reading context + 1st block",
   thinking: "Thinking",
-  text: "Writing text",
-  tool_use: "Emitting tool calls",
-  other: "Other",
+  generating: "Generating",
 };
 
-const KIND_COLORS: Record<BlockKind, string> = {
+const STAGE_COLORS: Record<ModelStage, string> = {
+  reading: "blue",
   thinking: "magenta",
-  text: "cyan",
-  tool_use: "yellow",
-  other: "white",
+  generating: "cyan",
 };
 
-const POSITION_LABELS: Record<PhasePosition, string> = {
-  first: "1st block",
-  continuation: "later",
-};
-
-const PHASE_LABEL_WIDTH = 34;
+const STAGE_LABEL_WIDTH = 30;
 
 export interface ModelBreakdownTableProps {
   breakdown: ModelBreakdown;
@@ -47,15 +39,19 @@ export interface ModelBreakdownTableProps {
 }
 
 /**
- * Model's own drill-down. CC writes one record per content block, each with
- * its own timestamp, so each row here is wall-clock that was actually spent
- * on that kind of output — not `modelMs` apportioned by token share, which
- * is what this replaces (model-breakdown.ts).
+ * Model's own drill-down, as the three stages of a request: reading the
+ * context back in, thinking, generating. CC writes one record per content
+ * block, each with its own timestamp, so every row is wall-clock that was
+ * actually spent there — not `modelMs` apportioned by token share, which is
+ * what this replaces (model-breakdown.ts).
  *
- * A request's first block is kept as its own row rather than folded in with
- * the rest: its slice also covers queueing the call and reading the prompt
- * back in, and the transcript timestamps the block's end, so there is no
- * honest way to separate the three.
+ * The underlying measurement is a six-cell grid (kind × position) and stays
+ * that way in `breakdown.phases` and in the JSON artifact; `collapsePhases`
+ * reads it down to three because the position axis is only interesting for
+ * one thing — that a request's leading slice also covers the API queue and
+ * reading the prompt back in, which the transcript cannot separate from the
+ * first block's own output. That caveat is the "Reading context" row, so it
+ * survives the collapse instead of being averaged away.
  */
 export function ModelBreakdownTable({
   breakdown,
@@ -68,31 +64,34 @@ export function ModelBreakdownTable({
     return <Text dimColor>No model time recorded in this session.</Text>;
   }
 
+  const stages = collapsePhases(phases, totalMs);
+
   return (
     <Box flexDirection="column">
       <Text dimColor>
         measured from per-block record timestamps · {coverage.totalRequests} request
         {coverage.totalRequests === 1 ? "" : "s"}, {coverage.requestsWithBlockSplit} written as more than one block
       </Text>
-      {phases.map((phase, i) => {
+      {stages.map((stage, i) => {
         const selected = active && i === selectedIndex;
-        const label = `${KIND_LABELS[phase.kind]} (${POSITION_LABELS[phase.position]})`;
         return (
-          <Box key={`${phase.position}:${phase.kind}`}>
-            <Box width={PHASE_LABEL_WIDTH} flexShrink={0}>
+          <Box key={stage.stage}>
+            <Box width={STAGE_LABEL_WIDTH} flexShrink={0}>
               <Text bold={selected} wrap="truncate-end">
-                {selected ? ">" : " "} {label}
+                {selected ? ">" : " "} {STAGE_LABELS[stage.stage]}
               </Text>
             </Box>
-            {bar(phase.pctOfModel, KIND_COLORS[phase.kind])}
+            {bar(stage.pctOfModel, STAGE_COLORS[stage.stage])}
             <Text>
               {" "}
-              {formatPercent(phase.pctOfModel)} ({formatMs(phase.ms)}, {phase.slices} slice
-              {phase.slices === 1 ? "" : "s"})
+              {formatPercent(stage.pctOfModel)} ({formatMs(stage.ms)}, {stage.slices} slice
+              {stage.slices === 1 ? "" : "s"})
             </Text>
           </Box>
         );
       })}
+      <Text dimColor>{"  "}the first row also holds the API queue and the first block's own output:</Text>
+      <Text dimColor>{"  "}a block is timestamped at its end, so those cannot be told apart</Text>
       {suspectMs > 0 ? (
         <Box marginTop={1} flexDirection="column">
           <Text color="red">

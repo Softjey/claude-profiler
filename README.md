@@ -100,23 +100,30 @@ Task          4       9m 12s      1m 58s    1
 
 ### Example: inside the Model bucket
 
-`⏎` on the Model row opens its own breakdown. Claude Code writes one transcript record per
-content block, each with its own timestamp, so this is measured wall-clock per kind of
-output — not `modelMs` split by token share:
+`⏎` on the Model row opens its own breakdown: the three stages of a request. Claude Code
+writes one transcript record per content block, each with its own timestamp, so this is
+measured wall-clock per stage — not `modelMs` split by token share:
 
 ```
 measured from per-block record timestamps · 83 requests, 68 written as more than one block
-> Writing text (1st block)        ██████████████░░░░░░ 71.7% (4h50m, 3 slices)
-  Writing text (later)            ████░░░░░░░░░░░░░░░░ 18.3% (1h14m, 47 slices)
-  Thinking (1st block)            █░░░░░░░░░░░░░░░░░░░ 6.4% (25m56s, 69 slices)
-  Emitting tool calls (later)     █░░░░░░░░░░░░░░░░░░░ 3.4% (13m36s, 73 slices)
-  Emitting tool calls (1st block) ░░░░░░░░░░░░░░░░░░░░ 0.3% (1m06s, 11 slices)
+> Reading context + 1st block ███████████████░░░░░ 78.1% (5h16m, 83 slices)
+  Thinking                    ░░░░░░░░░░░░░░░░░░░░  0.2% (49s, 4 slices)
+  Generating                  ████░░░░░░░░░░░░░░░░ 21.7% (1h28m, 120 slices)
+  the first row also holds the API queue and the first block's own output:
+  a block is timestamped at its end, so those cannot be told apart
 
 5h50m (86.4%) of this is probably not the model working:
   3 requests that ran for minutes below 5.3 tok/s — a slept machine or a dropped stream — 5h38m
   1 failed API call CC wrote itself (server_error) — 11m51s
   counted in the rows above, not on top of them: 54m58s is left that looks like generation
 ```
+
+The first row is the one to read carefully. A request's leading slice covers the API queue,
+reading the (often 200k-token) prompt back in, and the first block the model produced, and a
+block carries only its *end* timestamp — so no honest line can be drawn between them. It is
+named for the part that usually dominates it rather than for the block kind that closed it.
+The underlying six-cell grid (thinking/text/tool_use × first/later) is still in the JSON
+artifact under `modelBreakdown.phases`.
 
 A further `⏎` opens one row per API request, sortable by total time, first block, throughput
 or context size — and `←→` from there shows the same total grouped by what handed control

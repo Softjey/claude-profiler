@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildEventModel } from "../model/build-model.js";
 import type { TranscriptRecord } from "../parse/types.js";
-import { computeModelBreakdown } from "./model-breakdown.js";
+import { collapsePhases, computeModelBreakdown, type ModelPhase } from "./model-breakdown.js";
 import { computeTimeSplit } from "./time-split.js";
 
 function userPrompt(uuid: string, timestamp: string, content = "hi"): TranscriptRecord {
@@ -306,5 +306,36 @@ describe("computeModelBreakdown", () => {
     expect(breakdown.phases).toEqual([]);
     expect(breakdown.requests).toEqual([]);
     expect(breakdown.byCause).toEqual([]);
+  });
+});
+
+describe("collapsePhases", () => {
+  const phases: ModelPhase[] = [
+    { kind: "thinking", position: "first", ms: 300, pctOfModel: 0.3, slices: 3 },
+    { kind: "tool_use", position: "first", ms: 200, pctOfModel: 0.2, slices: 2 },
+    { kind: "tool_use", position: "continuation", ms: 400, pctOfModel: 0.4, slices: 4 },
+    { kind: "text", position: "continuation", ms: 100, pctOfModel: 0.1, slices: 1 },
+  ];
+
+  it("puts every first-block slice under reading, whatever kind closed it", () => {
+    const [reading] = collapsePhases(phases, 1000);
+    // Thinking-first and tool-first both carry the queue and the prefill.
+    expect(reading).toEqual({ stage: "reading", ms: 500, pctOfModel: 0.5, slices: 5 });
+  });
+
+  it("splits the continuation slices into thinking and generating", () => {
+    const [, thinking, generating] = collapsePhases(phases, 1000);
+    expect(thinking).toEqual({ stage: "thinking", ms: 0, pctOfModel: 0, slices: 0 });
+    expect(generating).toEqual({ stage: "generating", ms: 500, pctOfModel: 0.5, slices: 5 });
+  });
+
+  it("conserves the total it was given", () => {
+    const stages = collapsePhases(phases, 1000);
+    expect(stages.reduce((sum, stage) => sum + stage.ms, 0)).toBe(1000);
+    expect(stages.reduce((sum, stage) => sum + stage.pctOfModel, 0)).toBeCloseTo(1);
+  });
+
+  it("returns all three stages in pipeline order even with nothing to show", () => {
+    expect(collapsePhases([], 0).map((stage) => stage.stage)).toEqual(["reading", "thinking", "generating"]);
   });
 });

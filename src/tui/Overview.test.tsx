@@ -127,12 +127,12 @@ describe("OverviewScreen", () => {
   it("shows the measured model breakdown by default", () => {
     const { lastFrame } = renderOverview(makeProfile());
     const frame = lastFrame() ?? "";
-    expect(frame).toContain("Thinking (1st block)");
-    expect(frame).toContain("Writing text (later)");
+    expect(frame).toContain("Reading context + 1st block");
+    expect(frame).toContain("Generating");
     expect(frame).toContain("measured from per-block record timestamps");
   });
 
-  it("opens the request list from any phase row on Enter", async () => {
+  it("opens the request list from any stage row on Enter", async () => {
     const { lastFrame, stdin } = renderOverview(makeProfile());
     stdin.write("\r"); // into the Model breakdown
     await tick();
@@ -260,7 +260,7 @@ describe("OverviewScreen", () => {
     stdin.write("\r"); // into Model's breakdown
     await tick();
     const frame = lastFrame() ?? "";
-    expect(frame).toContain("Thinking (1st block)");
-    expect(frame).toContain("Writing text (later)");
+    expect(frame).toContain("Reading context + 1st block");
+    expect(frame).toContain("Generating");
   });
 });
