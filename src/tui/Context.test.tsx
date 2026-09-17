@@ -19,7 +19,7 @@ function makePoint(overrides: Partial<ContextPoint> = {}): ContextPoint {
 
 function makeProfile(overrides: Partial<Profile> = {}): Profile {
   return {
-    schemaVersion: "0.1",
+    schemaVersion: "0.2",
     generatedAt: "2026-01-01T00:00:00.000Z",
     generator: { name: "claude-profiler", version: "0.1.0" },
     session: {
@@ -92,6 +92,8 @@ function makeProfile(overrides: Partial<Profile> = {}): Profile {
     cost: null,
     context: { turns: [] },
     prompts: [],
+    hooks: null,
+    phases: null,
     diagnostics: { skippedLines: 0, unknownRecordTypes: {}, unmatchedToolUses: 0, versionsSeen: [] },
     ...overrides,
   };

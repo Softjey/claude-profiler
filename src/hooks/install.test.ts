@@ -3,18 +3,67 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { computeInstalledSettings, formatDiff, installHooks } from "./install.js";
+import {
+  computeInstalledSettings,
+  eventsToInstall,
+  formatDiff,
+  installedEvents,
+  installHooks,
+} from "./install.js";
+import { HIGH_VOLUME_HOOK_EVENTS, PROFILER_HOOK_EVENTS } from "./records.js";
+
+interface HookEntry {
+  matcher?: string;
+  hooks: { type: string; command: string }[];
+}
+
+/** Reads one event's entries out of loosely-typed settings. */
+function entries(settings: { hooks?: Record<string, unknown> }, event: string): HookEntry[] {
+  const raw = settings.hooks?.[event];
+  return Array.isArray(raw) ? (raw as HookEntry[]) : [];
+}
 
 describe("computeInstalledSettings", () => {
   const scriptPath = "/opt/claude-profiler/dist/hooks/hook-script.js";
 
-  it("adds a PreToolUse/PostToolUse hook entry to empty settings", () => {
-    const { next, alreadyInstalled } = computeInstalledSettings({}, scriptPath);
+  it("registers one entry for every subscribed event", () => {
+    const { next, alreadyInstalled, addedEvents } = computeInstalledSettings({}, scriptPath);
 
     expect(alreadyInstalled).toBe(false);
-    expect(next.hooks?.PreToolUse).toHaveLength(1);
-    expect(next.hooks?.PostToolUse).toHaveLength(1);
-    expect(next.hooks?.PreToolUse?.[0]?.hooks[0]?.command).toContain(scriptPath);
+    expect(addedEvents).toEqual([...PROFILER_HOOK_EVENTS]);
+    for (const event of PROFILER_HOOK_EVENTS) {
+      expect(entries(next, event)).toHaveLength(1);
+      expect(entries(next, event)[0]?.hooks[0]?.command).toContain(scriptPath);
+    }
+  });
+
+  it("leaves MessageDisplay unsubscribed unless stream timing was asked for", () => {
+    const withoutStream = computeInstalledSettings({}, scriptPath);
+    expect(entries(withoutStream.next, "MessageDisplay")).toHaveLength(0);
+
+    const withStream = computeInstalledSettings({}, scriptPath, eventsToInstall(true));
+    expect(entries(withStream.next, "MessageDisplay")).toHaveLength(1);
+    expect(withStream.addedEvents).toContain(HIGH_VOLUME_HOOK_EVENTS[0]);
+  });
+
+  it("gives tool events a matcher and lifecycle events none", () => {
+    const { next } = computeInstalledSettings({}, scriptPath);
+
+    expect(entries(next, "PreToolUse")[0]?.matcher).toBe("*");
+    expect(entries(next, "SessionStart")[0]).not.toHaveProperty("matcher");
+  });
+
+  it("upgrades a narrower install in place, without duplicating what is there", () => {
+    // What the first release wrote: PreToolUse and PostToolUse only.
+    const v1Install = computeInstalledSettings({}, scriptPath, ["PreToolUse", "PostToolUse"]);
+
+    const upgraded = computeInstalledSettings(v1Install.next, scriptPath);
+
+    expect(upgraded.alreadyInstalled).toBe(false);
+    expect(upgraded.addedEvents).not.toContain("PreToolUse");
+    expect(upgraded.addedEvents).toContain("SessionStart");
+    expect(entries(upgraded.next, "PreToolUse")).toHaveLength(1);
+    expect(entries(upgraded.next, "PermissionRequest")).toHaveLength(1);
   });
 
   it("preserves existing unrelated settings and hook entries", () => {
@@ -22,14 +71,31 @@ describe("computeInstalledSettings", () => {
       model: "sonnet",
       hooks: {
         PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "echo hi" }] }],
+        Notification: [{ hooks: [{ type: "command", command: "say done" }] }],
       },
     };
 
     const { next } = computeInstalledSettings(parsed, scriptPath);
 
     expect(next.model).toBe("sonnet");
-    expect(next.hooks?.PreToolUse).toHaveLength(2);
-    expect(next.hooks?.PreToolUse?.[0]?.hooks[0]?.command).toBe("echo hi");
+    expect(entries(next, "PreToolUse")).toHaveLength(2);
+    expect(entries(next, "PreToolUse")[0]?.hooks[0]?.command).toBe("echo hi");
+    expect(entries(next, "Notification")).toHaveLength(2);
+    expect(entries(next, "Notification")[0]?.hooks[0]?.command).toBe("say done");
+  });
+
+  it("leaves a foreign hook event it does not subscribe to completely alone", () => {
+    const parsed = { hooks: { TeammateIdle: [{ hooks: [{ type: "command", command: "ping" }] }] } };
+
+    const { next } = computeInstalledSettings(parsed, scriptPath);
+
+    expect(entries(next, "TeammateIdle")).toEqual([{ hooks: [{ type: "command", command: "ping" }] }]);
+  });
+
+  it("tolerates a hooks block whose event value is not an array", () => {
+    const { next } = computeInstalledSettings({ hooks: { PreToolUse: "nonsense" } }, scriptPath);
+
+    expect(entries(next, "PreToolUse")).toHaveLength(1);
   });
 
   it("is idempotent: running twice does not duplicate the entry", () => {
@@ -37,7 +103,25 @@ describe("computeInstalledSettings", () => {
     const second = computeInstalledSettings(first.next, scriptPath);
 
     expect(second.alreadyInstalled).toBe(true);
-    expect(second.next.hooks?.PreToolUse).toHaveLength(1);
+    expect(second.addedEvents).toEqual([]);
+    expect(entries(second.next, "PreToolUse")).toHaveLength(1);
+  });
+});
+
+describe("installedEvents", () => {
+  const scriptPath = "/opt/claude-profiler/dist/hooks/hook-script.js";
+
+  it("reports nothing for settings this tool has never touched", () => {
+    expect(installedEvents({}, scriptPath)).toEqual([]);
+    expect(
+      installedEvents({ hooks: { PreToolUse: [{ hooks: [{ type: "command", command: "other" }] }] } }, scriptPath),
+    ).toEqual([]);
+  });
+
+  it("names exactly the events a narrower install registered", () => {
+    const { next } = computeInstalledSettings({}, scriptPath, ["PreToolUse", "PostToolUse"]);
+
+    expect(installedEvents(next, scriptPath)).toEqual(["PreToolUse", "PostToolUse"]);
   });
 });
 
@@ -109,8 +193,52 @@ describe("installHooks", () => {
       hooks: { PreToolUse: unknown[]; PostToolUse: unknown[] };
     };
     expect(written.model).toBe("sonnet");
-    expect(written.hooks.PreToolUse).toHaveLength(1);
-    expect(written.hooks.PostToolUse).toHaveLength(1);
+    expect(entries(written, "PreToolUse")).toHaveLength(1);
+    expect(entries(written, "PermissionRequest")).toHaveLength(1);
+  });
+
+  it("keeps the first backup when a later run widens the subscription", async () => {
+    // The upgrade path: a second install must not capture settings that
+    // already contain this tool's own hooks, or uninstall would restore the
+    // user to a half-installed state instead of to their original file.
+    const original = '{\n  "model": "sonnet"\n}\n';
+    await writeFile(settingsPath, original);
+
+    await installHooks({
+      settingsPath,
+      backupPath,
+      scriptPath,
+      confirm: () => true,
+      stdout: () => {},
+    });
+    const second = await installHooks({
+      settingsPath,
+      backupPath,
+      scriptPath,
+      streamTiming: true,
+      confirm: () => true,
+      stdout: () => {},
+    });
+
+    expect(second.status).toBe("installed");
+    expect(second.addedEvents).toEqual(["MessageDisplay"]);
+    const backup = JSON.parse(await readFile(backupPath, "utf8")) as { raw: string };
+    expect(backup.raw).toBe(original);
+  });
+
+  it("reports which events it added", async () => {
+    await writeFile(settingsPath, "{}\n");
+
+    const result = await installHooks({
+      settingsPath,
+      backupPath,
+      scriptPath,
+      confirm: () => true,
+      stdout: () => {},
+    });
+
+    expect(result.addedEvents).toEqual([...PROFILER_HOOK_EVENTS]);
+    expect(result.message).toContain("PermissionRequest");
   });
 
   it("records that settings.json did not exist, for a clean uninstall later", async () => {

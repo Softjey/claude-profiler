@@ -6,6 +6,12 @@ import { computeCostStats, type CostStats } from "../metrics/cost.js";
 import { computeModelBreakdown, type ModelBreakdown } from "../metrics/model-breakdown.js";
 import { computePrompts, type PromptPoint } from "../metrics/prompts.js";
 import { computeTimeSplit } from "../metrics/time-split.js";
+import { computeHookInsights, type HookInsights } from "../metrics/hook-insights.js";
+import {
+  assertPhaseSplitSumsToSpan,
+  computePhaseSplit,
+  type PhaseSplit,
+} from "../metrics/session-phases.js";
 import { computeTokenStats, type TokenStats } from "../metrics/tokens.js";
 import { computeToolStats } from "../metrics/tool-stats.js";
 import { parseTranscript } from "../parse/parse-transcript.js";
@@ -37,7 +43,7 @@ export interface ProfileDiagnostics {
 }
 
 export interface Profile {
-  schemaVersion: "0.1";
+  schemaVersion: "0.2";
   generatedAt: string;
   generator: { name: string; version: string };
   session: SessionMeta;
@@ -50,6 +56,18 @@ export interface Profile {
   cost: CostStats | null;
   context: ContextSeries;
   prompts: PromptPoint[];
+  /**
+   * Measurements sourced from a hook sidecar rather than the transcript, or
+   * null for a session that ran without hooks installed — still the great
+   * majority of them.
+   */
+  hooks: HookInsights | null;
+  /**
+   * `timeline` with known session-idle time carved out of "You", or null when
+   * no sidecar named an idle phase. Kept beside `timeline` rather than
+   * replacing it so the derived four-bucket split stays inspectable.
+   */
+  phases: PhaseSplit | null;
   diagnostics: ProfileDiagnostics;
 }
 
@@ -189,8 +207,8 @@ function assertModelBreakdownInvariant(
  * must throw here rather than reach disk silently.
  */
 export function assertProfileInvariants(profile: Profile): void {
-  if (profile.schemaVersion !== "0.1") {
-    throw new ProfileInvariantError(`schemaVersion must be "0.1", got "${profile.schemaVersion}"`);
+  if (profile.schemaVersion !== "0.2") {
+    throw new ProfileInvariantError(`schemaVersion must be "0.2", got "${profile.schemaVersion}"`);
   }
 
   assertTimeSplitInvariant(profile.timeline, "timeline");
@@ -202,6 +220,15 @@ export function assertProfileInvariants(profile: Profile): void {
       subagent.timeline.modelMs,
       `subagents[${subagent.agentId}].modelBreakdown`,
     );
+  }
+  // The phase split carries a fifth bucket, so it has its own sum check: idle
+  // is only ever moved between buckets, never invented.
+  if (profile.phases !== null && profile.phases !== undefined) {
+    try {
+      assertPhaseSplitSumsToSpan(profile.phases);
+    } catch (error) {
+      throw new ProfileInvariantError(error instanceof Error ? error.message : String(error));
+    }
   }
 
   assertNoNaN(profile, "profile");
@@ -232,8 +259,20 @@ export async function buildProfile(options: BuildProfileOptions): Promise<Profil
   const prompts = computePrompts(events);
   const session = buildSessionMeta(sessionId, transcriptPath, records, events);
 
+  const hooks = computeHookInsights(merged.trace);
+  // The phase split needs an origin on the session clock to clip idle windows
+  // against. `session.startedAt` and `derivedTimeline.spanMs` come from
+  // slightly different record sets, but the bucket totals are bounded by the
+  // timeline itself, so the origin only affects per-phase clipping.
+  const spanStartMs = session.startedAt !== null ? Date.parse(session.startedAt) : Number.NaN;
+  const phases = computePhaseSplit(
+    derivedTimeline,
+    merged.trace,
+    Number.isFinite(spanStartMs) ? spanStartMs : null,
+  );
+
   const profile: Profile = {
-    schemaVersion: "0.1",
+    schemaVersion: "0.2",
     generatedAt: new Date().toISOString(),
     generator: { name: "claude-profiler", version: generatorVersion },
     session,
@@ -245,6 +284,8 @@ export async function buildProfile(options: BuildProfileOptions): Promise<Profil
     cost,
     context,
     prompts,
+    hooks,
+    phases,
     diagnostics: {
       skippedLines: parsed.diagnostics.skippedLines,
       unknownRecordTypes: parsed.diagnostics.unknownRecordTypes,

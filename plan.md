@@ -353,6 +353,43 @@ this plan assumes its data model and FR numbering.
 
 ---
 
+### T17 — Deep hook telemetry
+- **Depends on:** T10, T11, T13
+- **Goal:** Subscribe to the hook events that carry time or money signal, and use them to
+  fix two numbers the transcript cannot express honestly on its own.
+- **Added after the T1–T16 wave**, from an audit of what CC 2.1.274 actually exposes: 31
+  hook events, of which the shipped install used two, keeping four fields.
+- **Files:** `src/hooks/records.ts`, `src/hooks/trace.ts` (new), `src/hooks/hook-script.ts`,
+  `src/hooks/install.ts`, `src/hooks/sidecar.ts`, `src/metrics/hook-insights.ts`,
+  `src/metrics/session-phases.ts` (new), `src/tui/Hooks.tsx` (new),
+  `src/tui/TimeSplitBar.tsx`, `src/tui/Overview.tsx`, `src/artifact/profile.ts`,
+  `src/artifact/schema.ts`, `src/cli/index.ts`, `README.md`, `SPEC.md`
+- **Steps:**
+  1. Subscribe to the 20 events in SPEC FR21; `MessageDisplay` only behind
+     `--stream-timing`, since it fires per streaming flush.
+  2. Sidecar schema v2 that stores sizes and identifiers, never content (FR22), and never
+     widens an absent field into `null` or `0`.
+  3. Split approval from dispatch overhead using `PermissionRequest` (FR24). This is what
+     the T9 open question was really asking; see its resolution below.
+  4. Carve session idle out of "You" using `SessionStart` (FR25), as a fifth bucket beside
+     the derived split rather than an edit to it.
+  5. Roll the rest up into the artifact's `hooks` section: retry tax, batch parallelism,
+     per-tool response bytes, cache-rewrite USD, per-`prompt_id` turns, slash-command cost,
+     subagent spans, instruction loads.
+  6. Read v1 sidecars unchanged, labelled `approvalPrecision: "unsplit"` (FR27).
+- **Acceptance criteria:**
+  - A resumed session no longer reports closed-laptop time as "You", and the five buckets
+    sum to the span exactly.
+  - `approvalMs` never includes the profiler's own hook-spawn cost, and a v1 sidecar is
+    never presented as though it could separate the two.
+  - The sidecar contains no prompt, tool-input or tool-result content.
+  - The hook script cannot fail a tool call: never non-zero, never stdout, no interleaving
+    under parallel calls.
+  - A session profiled without hooks is unchanged apart from two `null` fields.
+- **Verify:** `pnpm verify`, plus `buildProfile` over every local transcript.
+
+---
+
 ---
 
 ## Execution: waves and parallelism
@@ -451,12 +488,22 @@ Expected conflicts, and the answer to each:
 
 ## Open questions
 
-- **T9 blocks T10's shape.** Whether `PreToolUse` fires before or after the permission
-  prompt is unverified. If it fires before, hooks give exact *total* time but still cannot
-  isolate approval wait — in that case `approvalMs` must be dropped from the artifact and
-  the UI rather than shipped as a guess. Resolve by running T9 before writing T10.
+- ~~**T9 blocks T10's shape.**~~ **Resolved.** `PreToolUse` fires *before* the permission
+  prompt — its return value may carry a `permissionDecision`, so it has to. The conclusion
+  T9 anticipated was right: with those two events alone, `approvalMs` is a guess. Measured
+  across every sidecar on this machine, in sessions running `defaultMode: auto` where
+  nothing could have been approved by hand, `(Post − Pre) − duration_ms` has a hard floor
+  near 30ms and a second cluster around 1.5s — it was mostly the profiler's own hook
+  spawns, benchmarked at ~35ms each.
+  Rather than dropping `approvalMs`, subscribing to `PermissionRequest` makes the split
+  exact: overhead is `PermissionRequest − Pre`, the decision is what remains (SPEC FR24).
+  v1 sidecars keep `approvalPrecision: "unsplit"` and are labelled as such.
 - **Subagent matching confidence (T8).** Whether the `Task` tool result carries a usable
   agent id, or whether time containment is the only available heuristic, is unverified.
   If only time containment works, ambiguous matches must be left unlinked, not guessed.
+  Partly sidestepped: with hooks, `SubagentStart`/`SubagentStop` carry the agent id and
+  its transcript path outright, and every tool event carries the `agent_id` it ran under,
+  so hook-profiled sessions need no matching at all. The heuristic still governs the
+  ~97% of sessions that ran without hooks.
 - **Cost (D7).** Deferred by the user, not resolved. Revisit after v1: whether to bundle a
   price snapshot so cost works in the other ~97.6% of sessions.
