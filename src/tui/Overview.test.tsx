@@ -186,7 +186,8 @@ describe("OverviewScreen", () => {
     expect(frame).toContain("x show stalled");
     // The Model table under the bar moves with it, rather than still totalling
     // the slept hours while the bar above says otherwise.
-    expect(frame).toContain("the rows above are the 1.0s that is left");
+    expect(frame).toMatch(/Generating, after the 1st block\s+\S*\s*100\.0% \(1\.0s\)/);
+    expect(frame).not.toContain("probably not the model working");
 
     stdin.write("x");
     await tick();

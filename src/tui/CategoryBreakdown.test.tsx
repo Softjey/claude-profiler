@@ -144,8 +144,11 @@ describe("ModelBreakdownTable", () => {
     // The slice count goes with it: the records still exist, so quoting them
     // beside a reduced time would be a claim the subtraction cannot support.
     expect(frame).not.toContain("slice");
-    expect(frame).toContain("left out of the rows above");
-    expect(frame).toContain("the rows above are the 1.0s that is left");
+    // The itemised account of the stalled time goes with it: the bar above
+    // already says how much was dropped, and repeating it here would be a
+    // breakdown of something this table is no longer showing.
+    expect(frame).not.toContain("probably not the model working");
+    expect(frame).not.toContain("slowest");
   });
 
   it("keeps the unfiltered reading when the lens is off, and ignores it with nothing to hide", () => {

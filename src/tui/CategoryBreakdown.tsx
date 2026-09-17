@@ -237,10 +237,6 @@ export function ModelBreakdownTable({
   const collapsed = collapsePhases(phases, totalMs);
   const stages = lensed ? withoutStalled(collapsed) : collapsed;
   const mix = leadingMix(phases);
-  // Under the lens the slowest request has to be the slowest one that was
-  // working: otherwise this line keeps reporting the same slept laptop, which
-  // is the one thing the lens was turned on to stop looking at.
-  const counted = lensed ? breakdown.requests.filter((request) => request.suspect === null) : breakdown.requests;
 
   return (
     <Box flexDirection="column">
@@ -263,15 +259,18 @@ export function ModelBreakdownTable({
           active={active}
         />
       )}
-      {suspectMs > 0 ? (
+      {/* Only while the stalled time is still in the rows. Once it has been
+          taken out, this is an itemised account of something the screen is no
+          longer showing — and the bar above already says how much was dropped
+          and what is left (TimeSplitBar). */}
+      {suspectMs > 0 && !lensed ? (
         <Box marginTop={1} flexDirection="column">
           {/* Plain rather than red: this is a finding about the machine, not a
               warning about anything the person can fix, and it matches the
               quiet Stalled row on the bar above (TimeSplitBar). */}
           <Text>
-            {lensed
-              ? `${formatMs(suspectMs)} left out of the rows above — probably not the model working:`
-              : `${formatMs(suspectMs)} (${formatPercent(totalMs > 0 ? suspectMs / totalMs : 0)}) of this is probably not the model working:`}
+            {formatMs(suspectMs)} ({formatPercent(totalMs > 0 ? suspectMs / totalMs : 0)}) of this is probably not the
+            model working:
           </Text>
           {breakdown.suspect.map((entry) => (
             <Text key={entry.reason} dimColor>
@@ -286,18 +285,21 @@ export function ModelBreakdownTable({
             </Text>
           ))}
           <Text dimColor>
-            {lensed
-              ? `  the rows above are the ${formatMs(totalMs - suspectMs)} that is left`
-              : `  counted in the rows above, not on top of them: ${formatMs(totalMs - suspectMs)} is left that looks like generation`}
+            {"  "}counted in the rows above, not on top of them: {formatMs(totalMs - suspectMs)} is left that looks
+            like generation
           </Text>
         </Box>
       ) : null}
-      {counted.length > 0 ? (
+      {/* Dropped under the lens for the same reason: the slowest request of a
+          session with an eleven-hour sleep in it is that sleep, and a
+          "slowest working request" is a second answer to a question the
+          request list (⏎) answers properly. */}
+      {breakdown.requests.length > 0 && !lensed ? (
         <Box marginTop={1}>
           <Text dimColor>
-            slowest {lensed ? "working " : ""}request: {formatMs(Math.max(...counted.map((r) => r.totalMs)))} ·{" "}
-            {formatCount(counted.reduce((sum, r) => sum + r.outputTokens, 0))} output tokens over{" "}
-            {lensed ? "the working requests" : "all requests"}
+            slowest request: {formatMs(Math.max(...breakdown.requests.map((r) => r.totalMs)))} ·{" "}
+            {formatCount(breakdown.requests.reduce((sum, r) => sum + r.outputTokens, 0))} output tokens over all
+            requests
           </Text>
         </Box>
       ) : null}
