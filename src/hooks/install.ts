@@ -3,17 +3,27 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
+import { HIGH_VOLUME_HOOK_EVENTS, PROFILER_HOOK_EVENTS, type SidecarEvent } from "./records.js";
 
 interface HookEntry {
   matcher?: string;
   hooks: { type: string; command: string }[];
 }
 
-interface HooksBlock {
-  PreToolUse?: HookEntry[];
-  PostToolUse?: HookEntry[];
-  [key: string]: unknown;
-}
+type HooksBlock = Record<string, unknown>;
+
+/**
+ * Events whose entries take a tool-name `matcher`. The rest are session or
+ * context lifecycle events with no tool to match, where an entry carries no
+ * matcher at all rather than a `"*"` that would read as meaningful.
+ */
+const TOOL_MATCHED_EVENTS = new Set<SidecarEvent>([
+  "PreToolUse",
+  "PostToolUse",
+  "PostToolUseFailure",
+  "PermissionRequest",
+  "PermissionDenied",
+]);
 
 interface Settings {
   hooks?: HooksBlock;
@@ -38,12 +48,42 @@ export function resolveHookScriptPath(): string {
   return fileURLToPath(new URL("./hook-script.js", import.meta.url));
 }
 
+/**
+ * The events an install subscribes to. `streamTiming` adds the high-volume
+ * `MessageDisplay` subscription, which fires once per streaming flush rather
+ * than once per turn — opt-in, because its cost scales with output length.
+ */
+export function eventsToInstall(streamTiming = false): readonly SidecarEvent[] {
+  return streamTiming ? [...PROFILER_HOOK_EVENTS, ...HIGH_VOLUME_HOOK_EVENTS] : PROFILER_HOOK_EVENTS;
+}
+
 export function areHooksInstalled(
   settingsPath: string = defaultSettingsPath(),
   scriptPath: string = resolveHookScriptPath(),
+  events: readonly SidecarEvent[] = eventsToInstall(),
 ): boolean {
   const { parsed } = readSettingsFile(settingsPath);
-  return computeInstalledSettings(parsed, scriptPath).alreadyInstalled;
+  return computeInstalledSettings(parsed, scriptPath, events).alreadyInstalled;
+}
+
+/**
+ * Events this tool has registered in the given settings, whether or not they
+ * match the current desired set. Lets the CLI tell "nothing installed" from
+ * "an older, narrower install is present and can be upgraded".
+ */
+export function installedEvents(
+  parsed: Settings,
+  scriptPath: string = resolveHookScriptPath(),
+): SidecarEvent[] {
+  const hooks = (parsed.hooks ?? {}) as HooksBlock;
+  const found: SidecarEvent[] = [];
+  for (const event of [...PROFILER_HOOK_EVENTS, ...HIGH_VOLUME_HOOK_EVENTS]) {
+    const entries = hooks[event];
+    if (Array.isArray(entries) && (entries as HookEntry[]).some((e) => isProfilerEntry(e, scriptPath))) {
+      found.push(event);
+    }
+  }
+  return found;
 }
 
 function readSettingsFile(path: string): { raw: string; parsed: Settings; existed: boolean } {
@@ -58,36 +98,43 @@ function hookCommand(scriptPath: string): string {
 }
 
 function isProfilerEntry(entry: HookEntry, scriptPath: string): boolean {
-  return entry.hooks.some((h) => h.command === hookCommand(scriptPath));
+  return Array.isArray(entry?.hooks) && entry.hooks.some((h) => h.command === hookCommand(scriptPath));
 }
 
+function entryFor(event: SidecarEvent, scriptPath: string): HookEntry {
+  const hooks = [{ type: "command", command: hookCommand(scriptPath) }];
+  return TOOL_MATCHED_EVENTS.has(event) ? { matcher: "*", hooks } : { hooks };
+}
+
+/**
+ * Adds one entry per desired event, leaving every other key in `hooks` — and
+ * every foreign entry inside the keys it does touch — exactly as it found them.
+ * Idempotent per event: an event this tool has already registered is skipped,
+ * so re-running after a version that subscribed to fewer events upgrades the
+ * install in place instead of duplicating the entries that were already there.
+ */
 export function computeInstalledSettings(
   parsed: Settings,
   scriptPath: string,
-): { next: Settings; alreadyInstalled: boolean } {
-  const existingPre = parsed.hooks?.PreToolUse ?? [];
-  const existingPost = parsed.hooks?.PostToolUse ?? [];
+  events: readonly SidecarEvent[] = eventsToInstall(),
+): { next: Settings; alreadyInstalled: boolean; addedEvents: SidecarEvent[] } {
+  const existingHooks = (parsed.hooks ?? {}) as HooksBlock;
+  const nextHooks: HooksBlock = { ...existingHooks };
+  const addedEvents: SidecarEvent[] = [];
 
-  const alreadyInstalled =
-    existingPre.some((e) => isProfilerEntry(e, scriptPath)) &&
-    existingPost.some((e) => isProfilerEntry(e, scriptPath));
-
-  if (alreadyInstalled) {
-    return { next: parsed, alreadyInstalled: true };
+  for (const event of events) {
+    const raw = existingHooks[event];
+    const entries: HookEntry[] = Array.isArray(raw) ? (raw as HookEntry[]) : [];
+    if (entries.some((e) => isProfilerEntry(e, scriptPath))) continue;
+    nextHooks[event] = [...entries, entryFor(event, scriptPath)];
+    addedEvents.push(event);
   }
 
-  const entry: HookEntry = { matcher: "*", hooks: [{ type: "command", command: hookCommand(scriptPath) }] };
+  if (addedEvents.length === 0) {
+    return { next: parsed, alreadyInstalled: true, addedEvents };
+  }
 
-  const next: Settings = {
-    ...parsed,
-    hooks: {
-      ...parsed.hooks,
-      PreToolUse: [...existingPre, entry],
-      PostToolUse: [...existingPost, entry],
-    },
-  };
-
-  return { next, alreadyInstalled: false };
+  return { next: { ...parsed, hooks: nextHooks }, alreadyInstalled: false, addedEvents };
 }
 
 /** A minimal line-based diff (LCS), good enough for a settings.json a few dozen lines long. */
@@ -148,6 +195,8 @@ export interface InstallOptions {
   settingsPath?: string;
   backupPath?: string;
   scriptPath?: string;
+  /** Adds the high-volume `MessageDisplay` subscription. */
+  streamTiming?: boolean;
   confirm?: (diffText: string) => Promise<boolean> | boolean;
   stdout?: (s: string) => void;
 }
@@ -155,6 +204,8 @@ export interface InstallOptions {
 export interface InstallResult {
   status: "installed" | "already-installed" | "aborted";
   message: string;
+  /** Events this run added; empty when nothing needed changing. */
+  addedEvents: SidecarEvent[];
 }
 
 export async function installHooks(options: InstallOptions = {}): Promise<InstallResult> {
@@ -163,12 +214,18 @@ export async function installHooks(options: InstallOptions = {}): Promise<Instal
   const scriptPath = options.scriptPath ?? resolveHookScriptPath();
   const stdout = options.stdout ?? ((s: string) => process.stdout.write(s));
   const confirm = options.confirm ?? defaultConfirm;
+  const events = eventsToInstall(options.streamTiming ?? false);
 
   const { raw, parsed, existed } = readSettingsFile(settingsPath);
-  const { next, alreadyInstalled } = computeInstalledSettings(parsed, scriptPath);
+  const before = installedEvents(parsed, scriptPath);
+  const { next, alreadyInstalled, addedEvents } = computeInstalledSettings(parsed, scriptPath, events);
 
   if (alreadyInstalled) {
-    return { status: "already-installed", message: "claude-profiler hooks are already installed.\n" };
+    return {
+      status: "already-installed",
+      message: `claude-profiler hooks are already installed (${before.length} events).\n`,
+      addedEvents: [],
+    };
   }
 
   const nextText = `${JSON.stringify(next, null, 2)}\n`;
@@ -177,18 +234,30 @@ export async function installHooks(options: InstallOptions = {}): Promise<Instal
 
   const approved = await confirm(diffText);
   if (!approved) {
-    return { status: "aborted", message: "Install aborted; settings.json left unchanged.\n" };
+    return { status: "aborted", message: "Install aborted; settings.json left unchanged.\n", addedEvents: [] };
   }
 
-  const backup: Backup = { existed, raw };
+  // Never overwrite an existing backup. A second install — upgrading a
+  // narrower subscription to a wider one — would otherwise capture settings
+  // that already contain this tool's own hooks, and uninstall would then
+  // "restore" the user to a half-installed state instead of to the file as it
+  // stood before the profiler ever touched it.
   mkdirSync(dirname(backupPath), { recursive: true });
-  writeFileSync(backupPath, JSON.stringify(backup));
+  const upgrade = existsSync(backupPath);
+  if (!upgrade) {
+    const backup: Backup = { existed, raw };
+    writeFileSync(backupPath, JSON.stringify(backup));
+  }
 
   mkdirSync(dirname(settingsPath), { recursive: true });
   writeFileSync(settingsPath, nextText);
 
-  return {
-    status: "installed",
-    message: `Installed PreToolUse/PostToolUse hooks in ${settingsPath}\nOriginal backed up to ${backupPath}\n`,
-  };
+  const summary = `${upgrade ? "Added" : "Installed"} ${addedEvents.length} hook event${
+    addedEvents.length === 1 ? "" : "s"
+  } in ${settingsPath}\n  ${addedEvents.join(", ")}\n`;
+  const backupNote = upgrade
+    ? `Pre-existing backup at ${backupPath} left untouched, so uninstall still restores your original settings.\n`
+    : `Original backed up to ${backupPath}\n`;
+
+  return { status: "installed", message: summary + backupNote, addedEvents };
 }

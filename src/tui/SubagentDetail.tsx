@@ -1,6 +1,6 @@
 import { Box, Text, useInput } from "ink";
 import type { SubagentStat } from "../metrics/subagent-stats.js";
-import type { ExactToolStat } from "../hooks/sidecar.js";
+import { withoutHookData, type ExactToolStat } from "../hooks/sidecar.js";
 import type { NavScreen, ScreenProps } from "./shell.js";
 import { TimeSplitBar } from "./TimeSplitBar.js";
 import { ToolTable, sortTools } from "./ToolTable.js";
@@ -16,7 +16,7 @@ export interface SubagentDetailScreenProps extends ScreenProps {
  * always shown as `—` here — never estimated from the parent session's cost.
  */
 function toExactToolStats(tools: SubagentStat["tools"]): ExactToolStat[] {
-  return tools.map((tool) => ({ ...tool, exactMs: null, approvalMs: null }));
+  return tools.map(withoutHookData);
 }
 
 /**
