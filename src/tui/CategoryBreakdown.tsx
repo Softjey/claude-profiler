@@ -355,7 +355,7 @@ export function UnaccountedBreakdown({ timeline, unmatchedToolUses }: Unaccounte
     <Box flexDirection="column">
       <Text>
         {formatMs(timeline.unaccountedMs)} ({share(timeline.unaccountedMs)}){" "}
-        {causes.length === 0 ? "has no known cause" : "no bucket may claim"}
+        {causes.length === 0 ? "has no known cause" : "that no bucket may claim"}
       </Text>
       {causes.length > 0 ? (
         <Box flexDirection="column" marginTop={1}>
@@ -381,7 +381,9 @@ export function UnaccountedBreakdown({ timeline, unmatchedToolUses }: Unaccounte
           {unmatchedToolUses > 0
             ? `${unmatchedToolUses} tool call${unmatchedToolUses === 1 ? "" : "s"} started but never recorded a result — an interrupted or ` +
               "still-running session — and some of that time likely ended up here."
-            : "No incomplete tool calls in this session; the rest is rounding and gaps between recorded events."}
+            : causes.length > 0
+              ? "No incomplete tool calls in this session."
+              : "No incomplete tool calls in this session; the rest is rounding and gaps between recorded events."}
         </Text>
       </Box>
     </Box>

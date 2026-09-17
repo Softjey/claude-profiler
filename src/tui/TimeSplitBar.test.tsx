@@ -15,6 +15,7 @@ function makeTimeline(overrides: Partial<MergedTimeSplit> = {}): MergedTimeSplit
     toolsIncludeApprovals: true,
     precision: "derived",
     userGaps: [],
+    unaccountedCauses: [],
     ...overrides,
   };
 }

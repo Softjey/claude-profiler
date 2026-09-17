@@ -108,6 +108,13 @@ export interface UserRecord extends TranscriptRecordBase {
   type: "user";
   message?: UserMessage;
   isMeta?: boolean;
+  /**
+   * CC's own marker for the summary it writes in the `user` role when the
+   * context window fills up and the conversation is compacted. It is not
+   * `isMeta` and carries no tool_result, so without this flag it is
+   * indistinguishable from something the person typed (build-model.ts).
+   */
+  isCompactSummary?: boolean;
   toolUseResult?: unknown;
 }
 

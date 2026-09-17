@@ -37,6 +37,7 @@ function makeTimeline(overrides: Partial<MergedTimeSplit> = {}): MergedTimeSplit
     toolsIncludeApprovals: true,
     precision: "derived",
     userGaps: [],
+    unaccountedCauses: [],
     ...overrides,
   };
 }
@@ -164,6 +165,21 @@ describe("UnaccountedBreakdown", () => {
     const frame = lastFrame() ?? "";
     expect(frame).toContain("has no known cause");
     expect(frame).toContain("2 tool calls");
+  });
+
+  it("names what is in the bucket, and keeps the remainder as a row of its own", () => {
+    const { lastFrame } = render(
+      createElement(UnaccountedBreakdown, {
+        timeline: makeTimeline({
+          unaccountedMs: 1000,
+          unaccountedCauses: [{ label: "context compaction", ms: 800, count: 2 }],
+        }),
+        unmatchedToolUses: 0,
+      }),
+    );
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("context compaction (2x)");
+    expect(frame).toContain("no known cause");
   });
 
   it("says so when there are no incomplete tool calls to blame", () => {

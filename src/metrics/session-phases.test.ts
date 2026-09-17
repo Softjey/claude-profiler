@@ -36,6 +36,7 @@ function split(overrides: Partial<TimeSplit>): TimeSplit {
     toolsIncludeApprovals: true,
     precision: "derived",
     userGaps: [],
+    unaccountedCauses: [],
     ...overrides,
   };
 }

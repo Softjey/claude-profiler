@@ -35,6 +35,7 @@ function minimalProfile(sessionId: string): Profile {
       toolsIncludeApprovals: true,
       precision: "derived",
       userGaps: [],
+      unaccountedCauses: [],
     },
     modelBreakdown: {
       totalMs: 3000,

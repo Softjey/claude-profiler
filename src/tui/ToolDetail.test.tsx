@@ -75,6 +75,7 @@ function makeProfile(overrides: Partial<Profile> = {}): Profile {
       toolsIncludeApprovals: true,
       precision: "derived",
       userGaps: [],
+      unaccountedCauses: [],
     },
     modelBreakdown: {
       totalMs: 3000,
@@ -179,6 +180,7 @@ describe("ToolDetailScreen", () => {
         toolsIncludeApprovals: true,
         precision: "derived",
         userGaps: [],
+        unaccountedCauses: [],
       },
       tools: [],
       tokens: { byModel: {}, totals: { input: 0, output: 0, thinking: 0, cacheRead: 0, cacheCreate1h: 0, cacheCreate5m: 0 } },

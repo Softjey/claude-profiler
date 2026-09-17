@@ -149,6 +149,7 @@ function interruptionMarkerText(record: UserRecord): string | undefined {
 
 function isGenuinePrompt(record: UserRecord): boolean {
   if (record.isMeta) return false;
+  if (record.isCompactSummary) return false;
   if (isToolResultCarrier(record)) return false;
   return interruptionMarkerText(record) === undefined;
 }
@@ -181,6 +182,13 @@ export function buildEventModel(records: TranscriptRecord[]): EventModel {
           turnIndex,
           preview: extractPromptPreview(full),
           full,
+        });
+      } else if (record.isCompactSummary) {
+        events.push({
+          type: "compaction",
+          uuid: record.uuid,
+          at: record.timestamp ?? null,
+          turnIndex: turnIndex < 0 ? 0 : turnIndex,
         });
       } else if (interruptionMarkerText(record) !== undefined) {
         events.push({

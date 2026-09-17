@@ -226,6 +226,7 @@ describe("assertProfileInvariants", () => {
         toolsIncludeApprovals: true,
         precision: "derived",
         userGaps: [],
+        unaccountedCauses: [],
       },
       modelBreakdown: {
         totalMs: 40,

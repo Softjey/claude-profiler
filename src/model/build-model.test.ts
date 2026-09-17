@@ -188,6 +188,31 @@ describe("buildEventModel", () => {
     expect(interruptions[0]?.at).toBe("2026-01-01T00:00:05.000Z");
   });
 
+  it("emits a compaction event for CC's own compact summary, not a user_prompt", () => {
+    const records: TranscriptRecord[] = [
+      userPrompt("u1", "2026-01-01T00:00:00.000Z"),
+      assistant("a1", "2026-01-01T00:00:01.000Z", [], "end_turn"),
+      {
+        type: "user",
+        uuid: "c1",
+        timestamp: "2026-01-01T00:20:00.000Z",
+        isCompactSummary: true,
+        message: { role: "user", content: "This session is being continued from a previous conversation…" },
+      } as TranscriptRecord,
+      userPrompt("u2", "2026-01-01T00:25:00.000Z", "продовжуй"),
+    ];
+
+    const { events } = buildEventModel(records);
+
+    const prompts = events.filter((e) => e.type === "user_prompt");
+    expect(prompts.map((e) => e.preview)).toEqual(["hi", "продовжуй"]);
+    expect(prompts.map((e) => e.turnIndex)).toEqual([0, 1]);
+
+    const compactions = events.filter((e) => e.type === "compaction");
+    expect(compactions).toHaveLength(1);
+    expect(compactions[0]?.at).toBe("2026-01-01T00:20:00.000Z");
+  });
+
   it("does not mistake a genuine prompt that merely quotes the marker text for the marker itself", () => {
     const records: TranscriptRecord[] = [
       userPrompt("u1", "2026-01-01T00:00:00.000Z", "why does it say [Request interrupted by user]?"),

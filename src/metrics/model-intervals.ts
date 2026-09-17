@@ -76,6 +76,27 @@ export interface ModelSegment extends Interval {
   event: AssistantEvent;
 }
 
+/**
+ * What each compaction cost, built exactly like a model segment: the
+ * compaction summary record closes an interval that opened at the previous
+ * recorded point in time. CC writes the summary in the `user` role and
+ * leaves no assistant record behind it, so this wall-clock belongs to no
+ * bucket — time-split.ts uses these intervals only to name the part of
+ * "unaccounted" that is compaction, never to claim it for the model.
+ */
+export function buildCompactionIntervals(events: ModelEvent[], sortedUniquePoints: number[]): Interval[] {
+  const intervals: Interval[] = [];
+  for (const event of events) {
+    if (event.type !== "compaction") continue;
+    const compactionMs = parseMs(event.at);
+    if (compactionMs === null) continue;
+    const previousMs = previousDistinctPoint(sortedUniquePoints, compactionMs);
+    if (previousMs === null) continue;
+    intervals.push({ startMs: previousMs, endMs: compactionMs });
+  }
+  return intervals;
+}
+
 export function buildModelSegments(events: ModelEvent[], sortedUniquePoints: number[]): ModelSegment[] {
   const segments: ModelSegment[] = [];
   for (const event of events) {

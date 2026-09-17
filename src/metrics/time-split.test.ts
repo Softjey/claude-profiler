@@ -172,6 +172,105 @@ describe("computeTimeSplit", () => {
     expect(split.modelMs + split.toolsMs + split.userMs + split.unaccountedMs).toBe(split.spanMs);
   });
 
+  it("never lets two prompt gaps overlap, so the drill-down stays inside the span", () => {
+    // Two prompts with no completed reply between them: the second used to
+    // scan all the way back to a1 and nest the first gap inside itself.
+    const records: TranscriptRecord[] = [
+      userPrompt("u1", "2026-01-01T00:00:00.000Z"),
+      assistant("a1", "2026-01-01T00:00:01.000Z", [], "end_turn"),
+      userPrompt("u2", "2026-01-01T00:05:00.000Z", "перше"),
+      assistant(
+        "a2",
+        "2026-01-01T00:05:01.000Z",
+        [toolUseBlock("t1")],
+        "tool_use",
+      ),
+      userPrompt("u3", "2026-01-01T00:20:00.000Z", "друге"),
+      toolResult("r1", "2026-01-01T00:20:05.000Z", "t1"),
+      assistant("a3", "2026-01-01T00:20:06.000Z", [], "end_turn"),
+    ];
+
+    const { events, toolUses } = buildEventModel(records);
+    const split = computeTimeSplit(events, toolUses);
+
+    expect(split.userGaps.map((gap) => gap.gapMs)).toEqual([299_000, 900_000]);
+    const gapTotal = split.userGaps.reduce((total, gap) => total + gap.gapMs, 0);
+    expect(gapTotal).toBeLessThanOrEqual(split.spanMs);
+    expect(gapTotal).toBeGreaterThanOrEqual(split.userMs);
+  });
+
+  it("gives a compaction summary no row of its own in the You drill-down", () => {
+    const records: TranscriptRecord[] = [
+      userPrompt("u1", "2026-01-01T00:00:00.000Z"),
+      assistant("a1", "2026-01-01T00:00:01.000Z", [toolUseBlock("t1")], "tool_use"),
+      toolResult("r1", "2026-01-01T00:00:05.000Z", "t1"),
+      {
+        type: "user",
+        uuid: "c1",
+        timestamp: "2026-01-01T00:30:00.000Z",
+        isCompactSummary: true,
+        message: { role: "user", content: "This session is being continued…" },
+      } as TranscriptRecord,
+      assistant("a2", "2026-01-01T00:30:02.000Z", [], "end_turn"),
+    ];
+
+    const { events, toolUses } = buildEventModel(records);
+    const split = computeTimeSplit(events, toolUses);
+
+    expect(split.userGaps).toEqual([]);
+  });
+
+  it("names the compaction time sitting inside the unaccounted bucket", () => {
+    // The compact summary closes a stretch of wall-clock with no assistant
+    // record behind it, so no bucket claims it — but it is not a mystery.
+    const records: TranscriptRecord[] = [
+      userPrompt("u1", "2026-01-01T00:00:00.000Z"),
+      assistant("a1", "2026-01-01T00:00:01.000Z", [toolUseBlock("t1")], "tool_use"),
+      toolResult("r1", "2026-01-01T00:00:05.000Z", "t1"),
+      {
+        type: "user",
+        uuid: "c1",
+        timestamp: "2026-01-01T00:01:05.000Z",
+        isCompactSummary: true,
+        message: { role: "user", content: "This session is being continued…" },
+      } as TranscriptRecord,
+      assistant("a2", "2026-01-01T00:01:06.000Z", [], "end_turn"),
+    ];
+
+    const { events, toolUses } = buildEventModel(records);
+    const split = computeTimeSplit(events, toolUses);
+
+    expect(split.unaccountedCauses).toEqual([
+      { label: "context compaction", ms: 60_000, count: 1 },
+    ]);
+    expect(split.unaccountedMs).toBeGreaterThanOrEqual(60_000);
+  });
+
+  it("never credits a cause time that another bucket already owns", () => {
+    // The compaction interval here is fully covered by a running tool call,
+    // so Tools keeps it and the cause reports nothing rather than double-counting.
+    const records: TranscriptRecord[] = [
+      userPrompt("u1", "2026-01-01T00:00:00.000Z"),
+      assistant("a1", "2026-01-01T00:00:01.000Z", [toolUseBlock("t1")], "tool_use"),
+      {
+        type: "user",
+        uuid: "c1",
+        timestamp: "2026-01-01T00:00:30.000Z",
+        isCompactSummary: true,
+        message: { role: "user", content: "This session is being continued…" },
+      } as TranscriptRecord,
+      toolResult("r1", "2026-01-01T00:00:40.000Z", "t1"),
+      assistant("a2", "2026-01-01T00:00:41.000Z", [], "end_turn"),
+    ];
+
+    const { events, toolUses } = buildEventModel(records);
+    const split = computeTimeSplit(events, toolUses);
+
+    expect(split.unaccountedCauses).toEqual([]);
+    const namedMs = split.unaccountedCauses.reduce((total, cause) => total + cause.ms, 0);
+    expect(namedMs).toBeLessThanOrEqual(split.unaccountedMs);
+  });
+
   it("returns all zeros for an empty event model", () => {
     const split = computeTimeSplit([], []);
     expect(split).toEqual({
@@ -183,6 +282,7 @@ describe("computeTimeSplit", () => {
       toolsIncludeApprovals: true,
       precision: "derived",
       userGaps: [],
+      unaccountedCauses: [],
     });
   });
 });

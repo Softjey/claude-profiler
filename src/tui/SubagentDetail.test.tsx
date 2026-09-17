@@ -20,6 +20,7 @@ function makeSubagent(overrides: Partial<SubagentStat> = {}): SubagentStat {
       toolsIncludeApprovals: true,
       precision: "derived",
       userGaps: [],
+      unaccountedCauses: [],
     },
     tools: [
       {

@@ -51,6 +51,28 @@ export function subtractIntervals(base: Interval[], subtract: Interval[]): Inter
   return result;
 }
 
+/**
+ * The overlap between two already-merged interval sets — what `base` and
+ * `other` both cover. Used to say how much of a bucket a named cause
+ * explains without ever crediting it time another bucket already owns.
+ */
+export function intersectIntervals(base: Interval[], other: Interval[]): Interval[] {
+  const result: Interval[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < base.length && j < other.length) {
+    const a = base[i];
+    const b = other[j];
+    if (!a || !b) break;
+    const startMs = Math.max(a.startMs, b.startMs);
+    const endMs = Math.min(a.endMs, b.endMs);
+    if (endMs > startMs) result.push({ startMs, endMs });
+    if (a.endMs < b.endMs) i++;
+    else j++;
+  }
+  return result;
+}
+
 export function sumMs(intervals: Interval[]): number {
   return intervals.reduce((total, interval) => total + (interval.endMs - interval.startMs), 0);
 }

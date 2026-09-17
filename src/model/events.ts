@@ -93,7 +93,32 @@ export interface InterruptionEvent {
   turnIndex: number;
 }
 
-export type ModelEvent = ToolUseEvent | AssistantEvent | UserPromptEvent | SystemEvent | InterruptionEvent;
+/**
+ * CC's compaction summary: a `user` record (`isCompactSummary`, parse/types.ts)
+ * that the harness writes for itself when the context window fills up, not
+ * something the person typed. It is never a genuine prompt — counting it as
+ * one inflated the turn count and, worse, gave the "You" drill-down a row
+ * whose gap was measured from the last completed reply, which can sit far
+ * behind the previous prompt and so overlap it (D-follow-up).
+ *
+ * It is still kept in the event stream because it is a real point in time:
+ * dropping it would let the model segment that follows the compaction
+ * (model-intervals.ts) reach back past it and bill the wait to the model.
+ */
+export interface CompactionEvent {
+  type: "compaction";
+  uuid: string | undefined;
+  at: string | null;
+  turnIndex: number;
+}
+
+export type ModelEvent =
+  | ToolUseEvent
+  | AssistantEvent
+  | UserPromptEvent
+  | SystemEvent
+  | InterruptionEvent
+  | CompactionEvent;
 
 export interface EventModel {
   events: ModelEvent[];

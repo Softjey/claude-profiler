@@ -46,6 +46,7 @@ function makeProfile(overrides: Partial<Profile> = {}): Profile {
       toolsIncludeApprovals: true,
       precision: "derived",
       userGaps: [],
+      unaccountedCauses: [],
     },
     modelBreakdown: {
       totalMs: 3000,
