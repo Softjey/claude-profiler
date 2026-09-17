@@ -1,0 +1,172 @@
+import { useInput } from "ink";
+import { render } from "ink-testing-library";
+import { createElement } from "react";
+import { describe, expect, it } from "vitest";
+import type { Profile } from "../artifact/profile.js";
+import type { ExactToolStat } from "../hooks/sidecar.js";
+import type { ToolCall } from "../metrics/tool-stats.js";
+import type { SubagentStat } from "../metrics/subagent-stats.js";
+import { useNavStack } from "./shell.js";
+import { toolDetailScreen } from "./ToolDetail.js";
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+function makeCall(overrides: Partial<ToolCall> = {}): ToolCall {
+  return {
+    id: "toolu_1",
+    name: "computer",
+    turnIndex: 0,
+    startedAt: "2026-01-01T00:00:00.000Z",
+    durationMs: 1000,
+    isOutlier: false,
+    inputPreview: "{}",
+    ...overrides,
+  };
+}
+
+function makeTool(overrides: Partial<ExactToolStat> = {}): ExactToolStat {
+  return {
+    name: "computer",
+    kind: "builtin",
+    mcpServer: undefined,
+    calls: 2,
+    totalMs: 1_080_127,
+    typicalMs: 14_980,
+    medianMs: 749,
+    p90Ms: 1000,
+    maxMs: 1_064_111,
+    outlierCount: 1,
+    unfinishedCount: 0,
+    pctOfSession: 0.1,
+    callRefs: [
+      makeCall({ id: "toolu_fast", durationMs: 749, isOutlier: false }),
+      makeCall({ id: "toolu_slow", durationMs: 1_064_111, isOutlier: true }),
+    ],
+    exactMs: null,
+    approvalMs: null,
+    ...overrides,
+  };
+}
+
+function makeProfile(overrides: Partial<Profile> = {}): Profile {
+  return {
+    schemaVersion: "0.1",
+    generatedAt: "2026-01-01T00:00:00.000Z",
+    generator: { name: "claude-profiler", version: "0.1.0" },
+    session: {
+      sessionId: "aaaaaaaa-0000-0000-0000-000000000000",
+      transcriptPath: "/tmp/a.jsonl",
+      projectPath: "/tmp",
+      gitBranch: undefined,
+      title: undefined,
+      startedAt: null,
+      endedAt: null,
+      spanMs: 10_000,
+      ccVersions: [],
+      models: [],
+      turnCount: 1,
+      messageCount: 1,
+      isSidechain: false,
+    },
+    timeline: {
+      modelMs: 0,
+      toolsMs: 10_000,
+      userMs: 0,
+      unaccountedMs: 0,
+      spanMs: 10_000,
+      toolsIncludeApprovals: true,
+      precision: "derived",
+    },
+    tools: [makeTool()],
+    subagents: [],
+    tokens: { byModel: {}, totals: { input: 0, output: 0, thinking: 0, cacheRead: 0, cacheCreate1h: 0, cacheCreate5m: 0 } },
+    cost: null,
+    context: { turns: [] },
+    diagnostics: { skippedLines: 0, unknownRecordTypes: {}, unmatchedToolUses: 0, versionsSeen: [] },
+    ...overrides,
+  };
+}
+
+function renderToolDetail(tool: ExactToolStat, profile: Profile) {
+  // Mirrors App.tsx's TabHost: real usage pops the nav stack on Esc.
+  function Wrapper(): React.JSX.Element {
+    const nav = useNavStack(toolDetailScreen(tool));
+    useInput((_input, key) => {
+      if (key.escape && nav.canPop) nav.pop();
+    });
+    return nav.current.render({ profile, nav });
+  }
+  return render(createElement(Wrapper));
+}
+
+describe("ToolDetailScreen", () => {
+  it("puts the 1064s call first, sorted by duration desc, and marks it an outlier", () => {
+    const tool = makeTool();
+    const { lastFrame } = renderToolDetail(tool, makeProfile());
+    const frame = lastFrame() ?? "";
+    const rowsStart = frame.indexOf("Input"); // after the column header, past the "median 749ms" summary line
+
+    const slowIndex = frame.indexOf("17m44s", rowsStart);
+    const fastIndex = frame.indexOf("749ms", rowsStart);
+
+    expect(slowIndex).toBeGreaterThan(-1);
+    expect(fastIndex).toBeGreaterThan(-1);
+    expect(slowIndex).toBeLessThan(fastIndex);
+    // the outlier marker sits just before the slow call's duration
+    expect(frame.slice(Math.max(0, slowIndex - 4), slowIndex)).toContain("!");
+  });
+
+  it("drills into a call on Enter for a non-task tool", async () => {
+    const tool = makeTool();
+    const { lastFrame, stdin } = renderToolDetail(tool, makeProfile());
+    stdin.write("\r");
+    await tick();
+    // the top (selected) row is the 1064s outlier call, sorted first
+    expect(lastFrame()).toContain("toolu_slow");
+  });
+
+  it("drills into the matching subagent on Enter, matched by call id rather than tool.kind (real transcripts name this tool 'Agent', not 'Task')", async () => {
+    const subagent: SubagentStat = {
+      agentId: "agent-1",
+      transcriptPath: "/tmp/agent-1.jsonl",
+      parentToolCallId: "toolu_slow",
+      spanMs: 5000,
+      timeline: {
+        modelMs: 1000,
+        toolsMs: 3000,
+        userMs: 500,
+        unaccountedMs: 500,
+        spanMs: 5000,
+        toolsIncludeApprovals: true,
+        precision: "derived",
+      },
+      tools: [],
+      tokens: { byModel: {}, totals: { input: 0, output: 0, thinking: 0, cacheRead: 0, cacheCreate1h: 0, cacheCreate5m: 0 } },
+    };
+    const taskTool = makeTool({ name: "Agent", kind: "builtin" });
+    const profile = makeProfile({ tools: [taskTool], subagents: [subagent] });
+
+    const { lastFrame, stdin } = renderToolDetail(taskTool, profile);
+    stdin.write("\r");
+    await tick();
+    expect(lastFrame()).toContain("agent-1");
+  });
+
+  it("Esc returns to the exact previous call selection after drilling into CallDetail", async () => {
+    const tool = makeTool(); // callRefs sorted desc: [toolu_slow (1064s), toolu_fast (749ms)]
+    const { lastFrame, stdin } = renderToolDetail(tool, makeProfile());
+
+    stdin.write("[B"); // down arrow: select the 2nd row (toolu_fast)
+    await tick();
+    stdin.write("\r"); // drill into its CallDetail
+    await tick();
+    expect(lastFrame()).toContain("toolu_fast");
+
+    stdin.write(""); // Esc back to ToolDetail
+    await tick();
+    stdin.write("\r"); // Enter again, with no further navigation
+    await tick();
+    // still toolu_fast, not reset back to the first (outlier) row
+    expect(lastFrame()).toContain("toolu_fast");
+  });
+});

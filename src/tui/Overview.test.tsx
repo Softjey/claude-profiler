@@ -1,3 +1,4 @@
+import { useInput } from "ink";
 import { render } from "ink-testing-library";
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
@@ -69,8 +70,12 @@ function makeProfile(overrides: Partial<Profile> = {}): Profile {
 }
 
 function renderOverview(profile: Profile) {
+  // Mirrors App.tsx's TabHost: real usage pops the nav stack on Esc.
   function Wrapper(): React.JSX.Element {
-    const nav = useNavStack({ id: "overview", render: OverviewScreen });
+    const nav = useNavStack({ id: "overview", render: (props) => createElement(OverviewScreen, props) });
+    useInput((_input, key) => {
+      if (key.escape && nav.canPop) nav.pop();
+    });
     return nav.current.render({ profile, nav });
   }
   return render(createElement(Wrapper));
@@ -111,5 +116,27 @@ describe("OverviewScreen", () => {
     const frame = lastFrame() ?? "";
     expect(frame).toContain("Read");
     expect(frame).not.toContain("Bash");
+  });
+
+  it("drills into the selected tool on Enter, and Esc returns to the exact previous selection", async () => {
+    const { lastFrame, stdin } = renderOverview(makeProfile());
+
+    // select the second row ("Read"), then drill in
+    stdin.write("[B"); // down arrow
+    await tick();
+    stdin.write("\r");
+    await tick();
+    expect(lastFrame()).toContain("Read"); // now inside ToolDetail for "Read"
+
+    stdin.write(""); // Esc
+    await tick();
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("Bash");
+    expect(frame).toContain("Read");
+    // back on Overview with "Read" (row 1) still the selected row (">"), not reset to "Bash" (row 0)
+    const readLine = frame.split("\n").find((l) => l.includes("Read"));
+    const bashLine = frame.split("\n").find((l) => l.includes("Bash"));
+    expect(readLine).toContain(">");
+    expect(bashLine).not.toContain(">");
   });
 });
