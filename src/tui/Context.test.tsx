@@ -51,8 +51,8 @@ function makeProfile(overrides: Partial<Profile> = {}): Profile {
     modelBreakdown: {
       totalMs: 3000,
       phases: [
-        { kind: "thinking", position: "first", ms: 2000, pctOfModel: 2 / 3, slices: 2 },
-        { kind: "text", position: "continuation", ms: 1000, pctOfModel: 1 / 3, slices: 1 },
+        { kind: "thinking", position: "first", ms: 2000, pctOfModel: 2 / 3, slices: 2, suspectMs: 0 },
+        { kind: "text", position: "continuation", ms: 1000, pctOfModel: 1 / 3, slices: 1, suspectMs: 0 },
       ],
       requests: [
         {

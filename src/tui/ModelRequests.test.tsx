@@ -39,7 +39,7 @@ function makeBreakdown(overrides: Partial<ModelBreakdown> = {}): ModelBreakdown 
   const requests = overrides.requests ?? [makeRequest()];
   return {
     totalMs: requests.reduce((sum, request) => sum + request.totalMs, 0),
-    phases: [{ kind: "thinking", position: "first", ms: 4000, pctOfModel: 0.8, slices: 1 }],
+    phases: [{ kind: "thinking", position: "first", ms: 4000, pctOfModel: 0.8, slices: 1, suspectMs: 0 }],
     suspect: [],
     suspectMs: 0,
     stallThresholdTokensPerSec: 4.2,

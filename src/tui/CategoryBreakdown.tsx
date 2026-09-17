@@ -3,6 +3,7 @@ import type { MergedTimeSplit } from "../hooks/sidecar.js";
 import {
   collapsePhases,
   leadingMix,
+  withoutStalled,
   type LeadingMix,
   type ModelBreakdown,
   type ModelStage,
@@ -67,6 +68,14 @@ export interface ModelBreakdownTableProps {
   selectedIndex: number;
   /** See ToolTableProps.active: only highlight once the cursor is in this table. */
   active: boolean;
+  /**
+   * Take `suspectMs` out of the rows and out of their denominator, so the
+   * table describes only the time the model was demonstrably working — the
+   * same lens the headline split is under (TimeSplitBar). Both have to move
+   * together: a screen where the bar says Model 16% and the table below it
+   * still totals the slept hours is worse than either reading alone.
+   */
+  excludeStalled?: boolean;
 }
 
 /**
@@ -76,13 +85,29 @@ export interface ModelBreakdownTableProps {
  */
 function RequestStages({
   split,
+  totalMs,
+  stalledMs,
+  excludeStalled,
   selectedIndex,
   active,
 }: {
   split: ModelStageSplit;
+  totalMs: number;
+  stalledMs: number;
+  excludeStalled: boolean;
   selectedIndex: number;
   active: boolean;
 }): React.JSX.Element {
+  // `computeModelStages` bills a suspect request's whole `totalMs` to waiting
+  // and prices none of its tokens (model-stages.ts), so removing stalled time
+  // here is one exact subtraction from one row — not a reallocation across
+  // three of them.
+  const denominatorMs = excludeStalled ? Math.max(0, totalMs - stalledMs) : totalMs;
+  const rows = split.stages.map((stage) => {
+    const ms = excludeStalled && stage.stage === "waiting" ? Math.max(0, stage.ms - stalledMs) : stage.ms;
+    return { ...stage, ms, pctOfModel: denominatorMs > 0 ? ms / denominatorMs : 0 };
+  });
+
   return (
     <Box flexDirection="column">
       <Text dimColor>
@@ -90,7 +115,7 @@ function RequestStages({
         {split.rate.requests === 1 ? "" : "s"}
         {split.rate.halfSpread === null ? "" : `, ±${formatPercent(split.rate.halfSpread)} across halves`}
       </Text>
-      {split.stages.map((stage, i) => {
+      {rows.map((stage, i) => {
         const selected = active && i === selectedIndex;
         return (
           <Box key={stage.stage}>
@@ -123,12 +148,14 @@ function MeasuredGrid({
   coverage,
   stages,
   mix,
+  excludeStalled,
   selectedIndex,
   active,
 }: {
   coverage: ModelBreakdown["coverage"];
   stages: ModelStageSlice[];
   mix: LeadingMix;
+  excludeStalled: boolean;
   selectedIndex: number;
   active: boolean;
 }): React.JSX.Element {
@@ -151,8 +178,12 @@ function MeasuredGrid({
               {bar(stage.pctOfModel, STAGE_COLORS[stage.stage])}
               <Text>
                 {" "}
-                {formatPercent(stage.pctOfModel)} ({formatMs(stage.ms)}, {stage.slices} slice
-                {stage.slices === 1 ? "" : "s"})
+                {formatPercent(stage.pctOfModel)} ({formatMs(stage.ms)}
+                {/* The slice count belongs to the unfiltered row: removing a
+                    stalled request's time does not remove the records that
+                    closed those slices, and there is no per-slice suspect
+                    count to net off (withoutStalled, model-breakdown.ts). */}
+                {excludeStalled ? "" : `, ${stage.slices} slice${stage.slices === 1 ? "" : "s"}`})
               </Text>
             </Box>
             {stage.stage === "reading" ? (
@@ -191,6 +222,7 @@ export function ModelBreakdownTable({
   stages: split,
   selectedIndex,
   active,
+  excludeStalled = false,
 }: ModelBreakdownTableProps): React.JSX.Element {
   const { coverage, phases, suspectMs, totalMs } = breakdown;
 
@@ -198,27 +230,48 @@ export function ModelBreakdownTable({
     return <Text dimColor>No model time recorded in this session.</Text>;
   }
 
-  const stages = collapsePhases(phases, totalMs);
+  // A lens with nothing to hide is no lens: with no suspect time the two
+  // renderings are identical, and the notes below would promise a subtraction
+  // that never happened.
+  const lensed = excludeStalled && suspectMs > 0;
+  const collapsed = collapsePhases(phases, totalMs);
+  const stages = lensed ? withoutStalled(collapsed) : collapsed;
   const mix = leadingMix(phases);
+  // Under the lens the slowest request has to be the slowest one that was
+  // working: otherwise this line keeps reporting the same slept laptop, which
+  // is the one thing the lens was turned on to stop looking at.
+  const counted = lensed ? breakdown.requests.filter((request) => request.suspect === null) : breakdown.requests;
 
   return (
     <Box flexDirection="column">
       {split !== null ? (
-        <RequestStages split={split} selectedIndex={selectedIndex} active={active} />
+        <RequestStages
+          split={split}
+          totalMs={totalMs}
+          stalledMs={suspectMs}
+          excludeStalled={lensed}
+          selectedIndex={selectedIndex}
+          active={active}
+        />
       ) : (
         <MeasuredGrid
           coverage={coverage}
           stages={stages}
           mix={mix}
+          excludeStalled={lensed}
           selectedIndex={selectedIndex}
           active={active}
         />
       )}
       {suspectMs > 0 ? (
         <Box marginTop={1} flexDirection="column">
-          <Text color="red">
-            {formatMs(suspectMs)} ({formatPercent(totalMs > 0 ? suspectMs / totalMs : 0)}) of this is probably not the
-            model working:
+          {/* Plain rather than red: this is a finding about the machine, not a
+              warning about anything the person can fix, and it matches the
+              quiet Stalled row on the bar above (TimeSplitBar). */}
+          <Text>
+            {lensed
+              ? `${formatMs(suspectMs)} left out of the rows above — probably not the model working:`
+              : `${formatMs(suspectMs)} (${formatPercent(totalMs > 0 ? suspectMs / totalMs : 0)}) of this is probably not the model working:`}
           </Text>
           {breakdown.suspect.map((entry) => (
             <Text key={entry.reason} dimColor>
@@ -233,17 +286,18 @@ export function ModelBreakdownTable({
             </Text>
           ))}
           <Text dimColor>
-            {"  "}counted in the rows above, not on top of them: {formatMs(totalMs - suspectMs)} is left that looks
-            like generation
+            {lensed
+              ? `  the rows above are the ${formatMs(totalMs - suspectMs)} that is left`
+              : `  counted in the rows above, not on top of them: ${formatMs(totalMs - suspectMs)} is left that looks like generation`}
           </Text>
         </Box>
       ) : null}
-      {breakdown.requests.length > 0 ? (
+      {counted.length > 0 ? (
         <Box marginTop={1}>
           <Text dimColor>
-            slowest request: {formatMs(Math.max(...breakdown.requests.map((r) => r.totalMs)))} ·{" "}
-            {formatCount(breakdown.requests.reduce((sum, r) => sum + r.outputTokens, 0))} output tokens over all
-            requests
+            slowest {lensed ? "working " : ""}request: {formatMs(Math.max(...counted.map((r) => r.totalMs)))} ·{" "}
+            {formatCount(counted.reduce((sum, r) => sum + r.outputTokens, 0))} output tokens over{" "}
+            {lensed ? "the working requests" : "all requests"}
           </Text>
         </Box>
       ) : null}

@@ -230,7 +230,7 @@ describe("assertProfileInvariants", () => {
       },
       modelBreakdown: {
         totalMs: 40,
-        phases: [{ kind: "thinking", position: "first", ms: 40, pctOfModel: 1, slices: 1 }],
+        phases: [{ kind: "thinking", position: "first", ms: 40, pctOfModel: 1, slices: 1, suspectMs: 0 }],
         requests: [],
         suspect: [],
         suspectMs: 0,

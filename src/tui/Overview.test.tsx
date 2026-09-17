@@ -63,8 +63,8 @@ function makeProfile(overrides: Partial<Profile> = {}): Profile {
     modelBreakdown: {
       totalMs: 3000,
       phases: [
-        { kind: "thinking", position: "first", ms: 2000, pctOfModel: 2 / 3, slices: 2 },
-        { kind: "text", position: "continuation", ms: 1000, pctOfModel: 1 / 3, slices: 1 },
+        { kind: "thinking", position: "first", ms: 2000, pctOfModel: 2 / 3, slices: 2, suspectMs: 0 },
+        { kind: "text", position: "continuation", ms: 1000, pctOfModel: 1 / 3, slices: 1, suspectMs: 0 },
       ],
       requests: [
         {
@@ -143,6 +143,61 @@ describe("OverviewScreen", () => {
     const frame = lastFrame() ?? "";
     expect(frame).toContain("[Requests]");
     expect(frame).toContain("tok/s");
+  });
+
+  // The shape that made this lens necessary: a session whose Model bucket is
+  // mostly one slept laptop, so every other row on the bar is unreadable.
+  function makeSleptProfile(): Profile {
+    const base = makeProfile();
+    return {
+      ...base,
+      timeline: { ...base.timeline, modelMs: 8000, toolsMs: 1000, userMs: 1000, unaccountedMs: 0 },
+      modelBreakdown: {
+        ...base.modelBreakdown,
+        totalMs: 8000,
+        phases: [
+          { kind: "thinking", position: "first", ms: 7000, pctOfModel: 0.875, slices: 2, suspectMs: 7000 },
+          { kind: "text", position: "continuation", ms: 1000, pctOfModel: 0.125, slices: 1, suspectMs: 0 },
+        ],
+        suspectMs: 7000,
+        suspect: [{ reason: "stalled", ms: 7000, requests: 1, pctOfModel: 0.875, kinds: [] }],
+      },
+    };
+  }
+
+  it("splits stalled time out of Model and offers the key to drop it entirely", () => {
+    const { lastFrame } = renderOverview(makeSleptProfile());
+    const frame = lastFrame() ?? "";
+
+    expect(frame).toMatch(/Stalled\s+\S*\s*70\.0%/);
+    expect(frame).toContain("x hide stalled");
+  });
+
+  it("recomputes the whole split over the working span on 'x'", async () => {
+    const { lastFrame, stdin } = renderOverview(makeSleptProfile());
+    stdin.write("x");
+    await tick();
+    const frame = lastFrame() ?? "";
+
+    // 1s model + 1s tools + 1s you, over a 3s working span.
+    expect(frame).toMatch(/Model\s+\S*\s*33\.3%/);
+    expect(frame).toMatch(/Tools\s+\S*\s*33\.3%/);
+    expect(frame).not.toMatch(/Stalled\s+[█░]/);
+    expect(frame).toContain("x show stalled");
+    // The Model table under the bar moves with it, rather than still totalling
+    // the slept hours while the bar above says otherwise.
+    expect(frame).toContain("the rows above are the 1.0s that is left");
+
+    stdin.write("x");
+    await tick();
+    expect(lastFrame() ?? "").toMatch(/Stalled\s+\S*\s*70\.0%/);
+  });
+
+  it("does not advertise the key on a session with nothing stalled", () => {
+    const frame = renderOverview(makeProfile()).lastFrame() ?? "";
+
+    expect(frame).not.toContain("stalled");
+    expect(frame).not.toContain("Stalled");
   });
 
   it("shows the tool table after moving to the Tools category", async () => {

@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { buildEventModel } from "../model/build-model.js";
 import type { TranscriptRecord } from "../parse/types.js";
-import { collapsePhases, computeModelBreakdown, leadingMix, type ModelPhase } from "./model-breakdown.js";
+import {
+  collapsePhases,
+  computeModelBreakdown,
+  leadingMix,
+  withoutStalled,
+  type ModelPhase,
+} from "./model-breakdown.js";
 import { computeTimeSplit } from "./time-split.js";
 
 function userPrompt(uuid: string, timestamp: string, content = "hi"): TranscriptRecord {
@@ -206,6 +212,37 @@ describe("computeModelBreakdown", () => {
     expect(breakdown.suspect.find((s) => s.reason === "stalled")?.requests).toBe(1);
   });
 
+  it("marks the stalled request's own slices, so a view can subtract them row by row", () => {
+    const records: TranscriptRecord[] = [
+      // A brisk request first, so the stalled one below cannot claim every slice.
+      userPrompt("u1", "2026-01-01T00:00:00.000Z"),
+      assistant("a1", "2026-01-01T00:00:10.000Z", [text()], {
+        requestId: "req_fast",
+        stopReason: "end_turn",
+        usage: { ...USAGE, output_tokens: 1000 },
+      }),
+      userPrompt("u2", "2026-01-01T00:00:20.000Z"),
+      assistant("a2", "2026-01-01T00:35:20.000Z", [text()], {
+        requestId: "req_slow",
+        stopReason: "end_turn",
+        usage: { ...USAGE, output_tokens: 20 },
+      }),
+    ];
+    const { events, toolUses } = buildEventModel(records);
+    const breakdown = computeModelBreakdown(events, toolUses);
+
+    // Both requests wrote a single first-block text slice, so they share one
+    // phase row — which is exactly the case a session-wide `suspectMs` cannot
+    // resolve and `phase.suspectMs` can.
+    const reading = breakdown.phases.find((phase) => phase.position === "first" && phase.kind === "text");
+    expect(reading?.slices).toBe(2);
+    expect(reading?.ms).toBe(2_110_000);
+    expect(reading?.suspectMs).toBe(2_100_000);
+    // The mark is a subset of the row, and of the bucket, in every phase.
+    for (const phase of breakdown.phases) expect(phase.suspectMs).toBeLessThanOrEqual(phase.ms);
+    expect(breakdown.phases.reduce((sum, phase) => sum + phase.suspectMs, 0)).toBe(breakdown.suspectMs);
+  });
+
   it("does not flag a fast request that simply wrote a lot", () => {
     const records: TranscriptRecord[] = [
       userPrompt("u1", "2026-01-01T00:00:00.000Z"),
@@ -311,22 +348,22 @@ describe("computeModelBreakdown", () => {
 
 describe("collapsePhases", () => {
   const phases: ModelPhase[] = [
-    { kind: "thinking", position: "first", ms: 300, pctOfModel: 0.3, slices: 3 },
-    { kind: "tool_use", position: "first", ms: 200, pctOfModel: 0.2, slices: 2 },
-    { kind: "tool_use", position: "continuation", ms: 400, pctOfModel: 0.4, slices: 4 },
-    { kind: "text", position: "continuation", ms: 100, pctOfModel: 0.1, slices: 1 },
+    { kind: "thinking", position: "first", ms: 300, pctOfModel: 0.3, slices: 3, suspectMs: 0 },
+    { kind: "tool_use", position: "first", ms: 200, pctOfModel: 0.2, slices: 2, suspectMs: 0 },
+    { kind: "tool_use", position: "continuation", ms: 400, pctOfModel: 0.4, slices: 4, suspectMs: 0 },
+    { kind: "text", position: "continuation", ms: 100, pctOfModel: 0.1, slices: 1, suspectMs: 0 },
   ];
 
   it("puts every first-block slice under reading, whatever kind closed it", () => {
     const [reading] = collapsePhases(phases, 1000);
     // Thinking-first and tool-first both carry the queue and the prefill.
-    expect(reading).toEqual({ stage: "reading", ms: 500, pctOfModel: 0.5, slices: 5 });
+    expect(reading).toEqual({ stage: "reading", ms: 500, pctOfModel: 0.5, slices: 5, suspectMs: 0 });
   });
 
   it("splits the continuation slices into thinking and generating", () => {
     const [, thinking, generating] = collapsePhases(phases, 1000);
-    expect(thinking).toEqual({ stage: "thinking", ms: 0, pctOfModel: 0, slices: 0 });
-    expect(generating).toEqual({ stage: "generating", ms: 500, pctOfModel: 0.5, slices: 5 });
+    expect(thinking).toEqual({ stage: "thinking", ms: 0, pctOfModel: 0, slices: 0, suspectMs: 0 });
+    expect(generating).toEqual({ stage: "generating", ms: 500, pctOfModel: 0.5, slices: 5, suspectMs: 0 });
   });
 
   it("conserves the total it was given", () => {
@@ -338,14 +375,58 @@ describe("collapsePhases", () => {
   it("returns all three stages in pipeline order even with nothing to show", () => {
     expect(collapsePhases([], 0).map((stage) => stage.stage)).toEqual(["reading", "thinking", "generating"]);
   });
+
+  it("carries each phase's stalled share into the stage it collapses into", () => {
+    const stalled: ModelPhase[] = [
+      { kind: "text", position: "first", ms: 1000, pctOfModel: 0.5, slices: 2, suspectMs: 900 },
+      { kind: "text", position: "continuation", ms: 1000, pctOfModel: 0.5, slices: 2, suspectMs: 0 },
+    ];
+    const [reading, , generating] = collapsePhases(stalled, 2000);
+    expect(reading?.suspectMs).toBe(900);
+    expect(generating?.suspectMs).toBe(0);
+  });
+});
+
+describe("withoutStalled", () => {
+  const stages = collapsePhases(
+    [
+      { kind: "text", position: "first", ms: 1000, pctOfModel: 0.5, slices: 2, suspectMs: 900 },
+      { kind: "text", position: "continuation", ms: 1000, pctOfModel: 0.5, slices: 2, suspectMs: 0 },
+    ],
+    2000,
+  );
+
+  it("subtracts the stalled time row by row rather than rescaling", () => {
+    const [reading, , generating] = withoutStalled(stages);
+    expect(reading?.ms).toBe(100);
+    expect(generating?.ms).toBe(1000);
+  });
+
+  it("reports the rows as shares of the working total, so they still sum to 1", () => {
+    const working = withoutStalled(stages);
+    expect(working.reduce((sum, stage) => sum + stage.pctOfModel, 0)).toBeCloseTo(1);
+    // A tenth of the reading row survived, against a generating row that was
+    // never stalled: the shape changes, which is the point of the lens.
+    expect(working[0]?.pctOfModel).toBeCloseTo(100 / 1100);
+  });
+
+  it("leaves nothing marked stalled behind, and says 0 when everything was", () => {
+    expect(withoutStalled(stages).every((stage) => stage.suspectMs === 0)).toBe(true);
+    const allStalled = collapsePhases(
+      [{ kind: "text", position: "first", ms: 500, pctOfModel: 1, slices: 1, suspectMs: 500 }],
+      500,
+    );
+    expect(withoutStalled(allStalled).map((stage) => stage.ms)).toEqual([0, 0, 0]);
+    expect(withoutStalled(allStalled).map((stage) => stage.pctOfModel)).toEqual([0, 0, 0]);
+  });
 });
 
 describe("leadingMix", () => {
   const phases: ModelPhase[] = [
-    { kind: "thinking", position: "first", ms: 300, pctOfModel: 0.3, slices: 3 },
-    { kind: "tool_use", position: "first", ms: 200, pctOfModel: 0.2, slices: 2 },
-    { kind: "text", position: "first", ms: 100, pctOfModel: 0.1, slices: 1 },
-    { kind: "tool_use", position: "continuation", ms: 400, pctOfModel: 0.4, slices: 4 },
+    { kind: "thinking", position: "first", ms: 300, pctOfModel: 0.3, slices: 3, suspectMs: 0 },
+    { kind: "tool_use", position: "first", ms: 200, pctOfModel: 0.2, slices: 2, suspectMs: 0 },
+    { kind: "text", position: "first", ms: 100, pctOfModel: 0.1, slices: 1, suspectMs: 0 },
+    { kind: "tool_use", position: "continuation", ms: 400, pctOfModel: 0.4, slices: 4, suspectMs: 0 },
   ];
 
   it("separates the leading slices that were thinking from the ones that went straight to output", () => {

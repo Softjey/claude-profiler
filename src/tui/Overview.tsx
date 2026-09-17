@@ -43,7 +43,13 @@ export function OverviewScreen({ profile, nav }: ScreenProps): React.JSX.Element
   const [sortKey, setSortKey] = useState<SortKey>("totalMs");
   const [filter, setFilter] = useState("");
   const [filtering, setFiltering] = useState(false);
+  // `x`: drop the stalled time and read the split over the working span only.
+  // Off by default — the first thing a session with an 11-hour sleep in it has
+  // to say is that the sleep is there, and a lens that hid it by default would
+  // report a tidy session that never happened.
+  const [excludeStalled, setExcludeStalled] = useState(false);
 
+  const stalledMs = profile.modelBreakdown.suspectMs;
   const rows = sortTools(profile.tools, sortKey, filter);
   const onTools = category === "tools";
   const inDetail = focus === "detail";
@@ -82,7 +88,12 @@ export function OverviewScreen({ profile, nav }: ScreenProps): React.JSX.Element
       return;
     }
 
-    if (input === "s" && onTools) {
+    if (input === "x" && stalledMs > 0) {
+      // Deliberately not gated on the focused category: the lens changes the
+      // headline bar as much as Model's own table, so it has to be reachable
+      // from wherever the cursor happens to be.
+      setExcludeStalled((on) => !on);
+    } else if (input === "s" && onTools) {
       setSortKey((k) => SORT_KEYS[(SORT_KEYS.indexOf(k) + 1) % SORT_KEYS.length] as SortKey);
       nav.setSelection(0);
     } else if (input === "/" && onTools) {
@@ -108,10 +119,30 @@ export function OverviewScreen({ profile, nav }: ScreenProps): React.JSX.Element
     // `←→` (switch tab) is handled by App.tsx via the tab registry (T15).
   });
 
+  // `x` is only advertised when this session has stalled time to hide: a key
+  // that does nothing is worse than no key at all, and most sessions have none.
+  const stalledKey = stalledMs === 0 ? "" : excludeStalled ? " · x show stalled" : " · x hide stalled";
+  const keys = !inDetail
+    ? "↑↓ category · ⏎ into table · ←→ tabs"
+    : onTools
+      ? "↑↓ select · ⏎ drill in · Esc back · ←→ tabs · s sort · / filter"
+      : category === "you"
+        ? "↑↓ select · ⏎ prompt detail · Esc back · ←→ tabs"
+        : category === "model"
+          ? "↑↓ select · ⏎ requests · Esc back · ←→ tabs"
+          : "↑↓ select · Esc back · ←→ tabs";
+  const keyHint = `${keys}${stalledKey} · q quit`;
+
   return (
     <Box flexDirection="column">
       <Box marginBottom={1}>
-        <TimeSplitBar timeline={profile.timeline} activeCategory={category} phases={profile.phases} />
+        <TimeSplitBar
+          timeline={profile.timeline}
+          activeCategory={category}
+          phases={profile.phases}
+          stalledMs={stalledMs}
+          excludeStalled={excludeStalled}
+        />
       </Box>
       {category === "tools" ? (
         <ToolTable tools={profile.tools} selectedIndex={selectedIndex} sortKey={sortKey} filter={filter} active={inDetail} />
@@ -121,6 +152,7 @@ export function OverviewScreen({ profile, nav }: ScreenProps): React.JSX.Element
             stages={profile.modelStages}
             selectedIndex={modelSelection}
             active={inDetail}
+            excludeStalled={excludeStalled}
           />
       ) : category === "you" ? (
         <UserPromptList userGaps={profile.timeline.userGaps} selectedIndex={youSelection} active={inDetail} />
@@ -128,19 +160,7 @@ export function OverviewScreen({ profile, nav }: ScreenProps): React.JSX.Element
         <UnaccountedBreakdown timeline={profile.timeline} unmatchedToolUses={profile.diagnostics.unmatchedToolUses} />
       )}
       <Box marginTop={1}>
-        <Text dimColor>
-          {filtering
-            ? "type to filter · ⏎/Esc done"
-            : !inDetail
-              ? "↑↓ category · ⏎ into table · ←→ tabs · q quit"
-              : onTools
-                ? "↑↓ select · ⏎ drill in · Esc back · ←→ tabs · s sort · / filter · q quit"
-                : category === "you"
-                  ? "↑↓ select · ⏎ prompt detail · Esc back · ←→ tabs · q quit"
-                  : category === "model"
-                    ? "↑↓ select · ⏎ requests · Esc back · ←→ tabs · q quit"
-                    : "↑↓ select · Esc back · ←→ tabs · q quit"}
-        </Text>
+        <Text dimColor>{filtering ? "type to filter · ⏎/Esc done" : keyHint}</Text>
       </Box>
     </Box>
   );

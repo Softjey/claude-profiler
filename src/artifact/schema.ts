@@ -231,13 +231,14 @@ export const PROFILE_JSON_SCHEMA = {
     blockKind: { enum: ["thinking", "text", "tool_use", "other"] },
     modelPhase: {
       type: "object",
-      required: ["kind", "position", "ms", "pctOfModel", "slices"],
+      required: ["kind", "position", "ms", "pctOfModel", "slices", "suspectMs"],
       properties: {
         kind: { $ref: "#/$defs/blockKind" },
         position: { enum: ["first", "continuation"] },
         ms: { type: "number", minimum: 0 },
         pctOfModel: { type: "number", minimum: 0 },
         slices: { type: "integer", minimum: 0 },
+        suspectMs: { type: "number", minimum: 0 },
       },
     },
     modelStageSplit: {

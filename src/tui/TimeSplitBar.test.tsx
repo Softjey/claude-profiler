@@ -128,3 +128,42 @@ describe("TimeSplitBar", () => {
     expect(frame).not.toContain("moved out of You");
   });
 });
+
+describe("TimeSplitBar, stalled time", () => {
+  // The shape of session 09dd4a5a: a laptop that slept for most of the span,
+  // billed to Model, which left every other row unreadably small.
+  const slept = makeTimeline({ modelMs: 8000, toolsMs: 1000, userMs: 1000, unaccountedMs: 0 });
+
+  it("splits the stalled time out of Model into a row of its own", () => {
+    const { lastFrame } = render(createElement(TimeSplitBar, { timeline: slept, stalledMs: 7000 }));
+    const frame = lastFrame() ?? "";
+
+    expect(frame).toContain("Stalled");
+    // Model keeps only what is left, as a share of the unchanged span.
+    expect(frame).toMatch(/Model\s+\S*\s*10\.0% \(1\.0s\)/);
+    expect(frame).toMatch(/Stalled\s+\S*\s*70\.0% \(7\.0s\)/);
+    expect(frame).toContain("split out of Model");
+  });
+
+  it("drops it from the span as well as from Model once excluded", () => {
+    const { lastFrame } = render(
+      createElement(TimeSplitBar, { timeline: slept, stalledMs: 7000, excludeStalled: true }),
+    );
+    const frame = lastFrame() ?? "";
+
+    // 1s model + 1s tools + 1s you over a 3s working span: the rows still sum
+    // to 100%, which is the whole point of dropping it from the denominator.
+    // The note still names it; what goes away is the row and its share.
+    expect(frame).not.toMatch(/Stalled\s+[█░]/);
+    expect(frame).toMatch(/Model\s+\S*\s*33\.3% \(1\.0s\)/);
+    expect(frame).toMatch(/Tools\s+\S*\s*33\.3% \(1\.0s\)/);
+    expect(frame).toMatch(/You\s+\S*\s*33\.3% \(1\.0s\)/);
+    expect(frame).toContain("3.0s this session spent working");
+  });
+
+  it("says nothing at all about stalling when the session had none", () => {
+    const { lastFrame } = render(createElement(TimeSplitBar, { timeline: slept, stalledMs: 0 }));
+
+    expect(lastFrame() ?? "").not.toContain("Stalled");
+  });
+});

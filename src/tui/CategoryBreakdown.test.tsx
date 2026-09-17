@@ -4,14 +4,15 @@ import { describe, expect, it } from "vitest";
 import { ModelBreakdownTable, UnaccountedBreakdown, UserPromptList } from "./CategoryBreakdown.js";
 import type { MergedTimeSplit } from "../hooks/sidecar.js";
 import type { ModelBreakdown } from "../metrics/model-breakdown.js";
+import type { ModelStageSplit } from "../metrics/model-stages.js";
 import type { UserGap } from "../metrics/time-split.js";
 
 function makeBreakdown(overrides: Partial<ModelBreakdown> = {}): ModelBreakdown {
   return {
     totalMs: 4000,
     phases: [
-      { kind: "thinking", position: "first", ms: 3000, pctOfModel: 0.75, slices: 3 },
-      { kind: "text", position: "continuation", ms: 1000, pctOfModel: 0.25, slices: 2 },
+      { kind: "thinking", position: "first", ms: 3000, pctOfModel: 0.75, slices: 3, suspectMs: 0 },
+      { kind: "text", position: "continuation", ms: 1000, pctOfModel: 0.25, slices: 2, suspectMs: 0 },
     ],
     requests: [],
     suspect: [],
@@ -112,6 +113,111 @@ describe("ModelBreakdownTable", () => {
     expect(frame).toContain("4.2 tok/s");
     // The leftover is stated so the rows above are not mistaken for pure generation.
     expect(frame).toContain("is left that looks");
+  });
+
+  it("takes the stalled time out of the rows and out of their denominator", () => {
+    const { lastFrame } = render(
+      createElement(ModelBreakdownTable, {
+        stages: null,
+        breakdown: makeBreakdown({
+          totalMs: 4000,
+          // 3s of the 3s reading row was one slept request; the 1s of
+          // generation after it was real work.
+          phases: [
+            { kind: "thinking", position: "first", ms: 3000, pctOfModel: 0.75, slices: 3, suspectMs: 3000 },
+            { kind: "text", position: "continuation", ms: 1000, pctOfModel: 0.25, slices: 2, suspectMs: 0 },
+          ],
+          suspectMs: 3000,
+          suspect: [{ reason: "stalled", ms: 3000, requests: 1, pctOfModel: 0.75, kinds: [] }],
+        }),
+        selectedIndex: 0,
+        active: true,
+        excludeStalled: true,
+      }),
+    );
+    const frame = lastFrame() ?? "";
+
+    // Without the lens the reading row is 75%; with it, the 1s that was really
+    // generation is the whole of what is left.
+    expect(frame).toMatch(/Reading context \+ 1st block\s+\S*\s*0\.0%/);
+    expect(frame).toMatch(/Generating, after the 1st block\s+\S*\s*100\.0% \(1\.0s\)/);
+    // The slice count goes with it: the records still exist, so quoting them
+    // beside a reduced time would be a claim the subtraction cannot support.
+    expect(frame).not.toContain("slice");
+    expect(frame).toContain("left out of the rows above");
+    expect(frame).toContain("the rows above are the 1.0s that is left");
+  });
+
+  it("keeps the unfiltered reading when the lens is off, and ignores it with nothing to hide", () => {
+    const withStall = makeBreakdown({
+      phases: [
+        { kind: "thinking", position: "first", ms: 3000, pctOfModel: 0.75, slices: 3, suspectMs: 3000 },
+        { kind: "text", position: "continuation", ms: 1000, pctOfModel: 0.25, slices: 2, suspectMs: 0 },
+      ],
+      suspectMs: 3000,
+      suspect: [{ reason: "stalled", ms: 3000, requests: 1, pctOfModel: 0.75, kinds: [] }],
+    });
+    const off = render(
+      createElement(ModelBreakdownTable, {
+        stages: null,
+        breakdown: withStall,
+        selectedIndex: 0,
+        active: true,
+        excludeStalled: false,
+      }),
+    );
+    expect(off.lastFrame() ?? "").toMatch(/Reading context \+ 1st block\s+\S*\s*75\.0%/);
+
+    // A session with no suspect time renders the same under either flag: a
+    // lens with nothing to hide must not promise a subtraction it never made.
+    const clean = makeBreakdown();
+    const lensed = render(
+      createElement(ModelBreakdownTable, {
+        stages: null,
+        breakdown: clean,
+        selectedIndex: 0,
+        active: true,
+        excludeStalled: true,
+      }),
+    );
+    const plain = render(
+      createElement(ModelBreakdownTable, { stages: null, breakdown: clean, selectedIndex: 0, active: true }),
+    );
+    expect(lensed.lastFrame()).toBe(plain.lastFrame());
+  });
+
+  it("subtracts the stalled time from the estimated waiting row, which is where it sits", () => {
+    // computeModelStages bills a suspect request's whole span to waiting, so
+    // the lens is one subtraction from one row (model-stages.ts).
+    const split: ModelStageSplit = {
+      stages: [
+        { stage: "waiting", ms: 3500, pctOfModel: 0.875 },
+        { stage: "thinking", ms: 100, pctOfModel: 0.025 },
+        { stage: "generating", ms: 400, pctOfModel: 0.1 },
+      ],
+      rate: { msPerToken: 2, tokensPerSec: 500, requests: 9, halfSpread: 0.03 },
+      clampedRequests: 0,
+      totalRequests: 10,
+    };
+    const breakdown = makeBreakdown({
+      suspectMs: 3000,
+      suspect: [{ reason: "stalled", ms: 3000, requests: 1, pctOfModel: 0.75, kinds: [] }],
+    });
+    const { lastFrame } = render(
+      createElement(ModelBreakdownTable, {
+        stages: split,
+        breakdown,
+        selectedIndex: 0,
+        active: true,
+        excludeStalled: true,
+      }),
+    );
+    const frame = lastFrame() ?? "";
+
+    // 500ms waiting, 100ms thinking, 400ms generating over a 1s working bucket.
+    expect(frame).toMatch(/Waiting for first token\s+\S*\s*50\.0% \(500ms\)/);
+    expect(frame).toMatch(/Thinking\s+\S*\s*10\.0% \(100ms\)/);
+    expect(frame).toMatch(/Generating\s+\S*\s*40\.0% \(400ms\)/);
   });
 
   it("says so plainly when there is no model time at all", () => {

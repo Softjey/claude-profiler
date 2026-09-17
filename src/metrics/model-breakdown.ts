@@ -24,6 +24,14 @@ export interface ModelPhase {
   pctOfModel: number;
   /** Assistant records that closed a slice with this label. */
   slices: number;
+  /**
+   * The part of `ms` that belongs to a suspect request — a slept machine, a
+   * failed call — and so sits in this row without the model having worked for
+   * it. Carried per phase, not just as the session-wide `suspectMs`, so a view
+   * that excludes stalled time can subtract it row by row instead of rescaling
+   * the whole grid and quietly changing its shape.
+   */
+  suspectMs: number;
 }
 
 /**
@@ -283,29 +291,16 @@ export function computeModelBreakdown(events: ModelEvent[], toolUses: ToolUseEve
 
   const totalMs = attributed.reduce((sum, item) => sum + item.ms, 0);
 
-  const phaseByLabel = new Map<string, ModelPhase>();
-  for (const { segment, ms } of attributed) {
-    const position: PhasePosition = segment.event.isFirstOfRequest ? "first" : "continuation";
-    const label = `${position}:${segment.event.kind}`;
-    const existing = phaseByLabel.get(label) ?? {
-      kind: segment.event.kind,
-      position,
-      ms: 0,
-      pctOfModel: 0,
-      slices: 0,
-    };
-    existing.ms += ms;
-    existing.slices += 1;
-    phaseByLabel.set(label, existing);
-  }
-  const phases = [...phaseByLabel.values()]
-    .map((phase) => ({ ...phase, pctOfModel: totalMs > 0 ? phase.ms / totalMs : 0 }))
-    .sort((a, b) => b.ms - a.ms);
+  // One key per attributed slice, computed once: the phase grid is built
+  // below from the same array and has to agree with `byRequest` about which
+  // request a slice belongs to, or a slice's suspect time would be counted
+  // against a phase it is not in.
+  const keys = attributed.map(({ segment }, i) => requestKeyOf(segment.event, i));
 
   // Requests, in the order their first record landed.
   const byRequest = new Map<string, AttributedSegment[]>();
   attributed.forEach(({ segment, ms }, i) => {
-    const key = requestKeyOf(segment.event, i);
+    const key = keys[i] ?? requestKeyOf(segment.event, i);
     const bucket = byRequest.get(key);
     if (bucket) bucket.push({ segment, ms });
     else byRequest.set(key, [{ segment, ms }]);
@@ -383,6 +378,31 @@ export function computeModelBreakdown(events: ModelEvent[], toolUses: ToolUseEve
     if (request.totalMs < STALL_MIN_MS) continue;
     if ((request.tokensPerSec ?? 0) < threshold) request.suspect = "stalled";
   }
+
+  // Built here rather than straight after `attributed`, because a phase row
+  // cannot say how much of itself was stalled until every request has been
+  // measured and judged — the threshold is the session's own median rate.
+  const suspectKeys = new Set(requests.filter((request) => request.suspect !== null).map((request) => request.key));
+  const phaseByLabel = new Map<string, ModelPhase>();
+  attributed.forEach(({ segment, ms }, i) => {
+    const position: PhasePosition = segment.event.isFirstOfRequest ? "first" : "continuation";
+    const label = `${position}:${segment.event.kind}`;
+    const existing = phaseByLabel.get(label) ?? {
+      kind: segment.event.kind,
+      position,
+      ms: 0,
+      pctOfModel: 0,
+      slices: 0,
+      suspectMs: 0,
+    };
+    existing.ms += ms;
+    existing.slices += 1;
+    if (suspectKeys.has(keys[i] ?? requestKeyOf(segment.event, i))) existing.suspectMs += ms;
+    phaseByLabel.set(label, existing);
+  });
+  const phases = [...phaseByLabel.values()]
+    .map((phase) => ({ ...phase, pctOfModel: totalMs > 0 ? phase.ms / totalMs : 0 }))
+    .sort((a, b) => b.ms - a.ms);
 
   const suspectByReason = new Map<SuspectReason, ModelSuspect>();
   for (const request of requests) {
@@ -470,6 +490,8 @@ export interface ModelStageSlice {
   ms: number;
   pctOfModel: number;
   slices: number;
+  /** The part of `ms` a suspect request contributed (see `ModelPhase.suspectMs`). */
+  suspectMs: number;
 }
 
 /** Pipeline order, not largest-first: these are stages of one request. */
@@ -486,18 +508,44 @@ function stageOf(phase: ModelPhase): ModelStage {
  * a row that disappears says it less clearly than a row reading 0.0%.
  */
 export function collapsePhases(phases: ModelPhase[], totalMs: number): ModelStageSlice[] {
-  const byStage = new Map<ModelStage, ModelStageSlice>(
-    STAGE_ORDER.map((stage) => [stage, { stage, ms: 0, pctOfModel: 0, slices: 0 }]),
-  );
+  const empty = (stage: ModelStage): ModelStageSlice => ({
+    stage,
+    ms: 0,
+    pctOfModel: 0,
+    slices: 0,
+    suspectMs: 0,
+  });
+  const byStage = new Map<ModelStage, ModelStageSlice>(STAGE_ORDER.map((stage) => [stage, empty(stage)]));
   for (const phase of phases) {
     const slice = byStage.get(stageOf(phase));
     if (!slice) continue;
     slice.ms += phase.ms;
     slice.slices += phase.slices;
+    slice.suspectMs += phase.suspectMs;
   }
   return STAGE_ORDER.map((stage) => {
-    const slice = byStage.get(stage) ?? { stage, ms: 0, pctOfModel: 0, slices: 0 };
+    const slice = byStage.get(stage) ?? empty(stage);
     return { ...slice, pctOfModel: totalMs > 0 ? slice.ms / totalMs : 0 };
+  });
+}
+
+/**
+ * The same three stages with stalled time taken out: what the model did over
+ * the part of the bucket it was demonstrably working. Percentages are of the
+ * working total, not of `totalMs`, so the rows still sum to 100% — a lens
+ * that removed the time but kept the old denominator would leave every row
+ * reading low and the bar looking half-empty for no stated reason.
+ *
+ * `slices` is passed through untouched: the transcript records that closed
+ * those slices still exist, and there is no per-slice suspect count to
+ * subtract. Callers that show the time this returns should not also show the
+ * slice count beside it.
+ */
+export function withoutStalled(stages: ModelStageSlice[]): ModelStageSlice[] {
+  const workingTotalMs = stages.reduce((sum, stage) => sum + Math.max(0, stage.ms - stage.suspectMs), 0);
+  return stages.map((stage) => {
+    const ms = Math.max(0, stage.ms - stage.suspectMs);
+    return { ...stage, ms, suspectMs: 0, pctOfModel: workingTotalMs > 0 ? ms / workingTotalMs : 0 };
   });
 }
 
