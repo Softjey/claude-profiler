@@ -1,0 +1,346 @@
+# claude-profiler — Implementation Plan
+
+**Goal:** A CLI that reads one Claude Code session transcript and shows the user where
+the time went — per tool, per turn, including the user's own time — as an interactive
+terminal table backed by a reusable JSON artifact.
+
+**Stack:** TypeScript, Node 20+, Ink (TUI), Vitest, distributed via `npx claude-profiler`.
+
+**Scope:** Everything in `SPEC.md` at schemaVersion 0.1. Read `SPEC.md` before starting —
+this plan assumes its data model and FR numbering.
+
+## Out of scope
+
+- Any agent/LLM-assisted interpretation of results (no MCP server, no built-in chat, no advice)
+- Corpus-wide analysis, trends, cross-session comparison, anomaly detection
+- A price table or any cost estimation — cost is read from `cost-state` or shown as `—` (D7)
+- HTML/web/any non-terminal frontend
+- Network calls of any kind
+- Writing to the user's transcripts, or to `settings.json` outside `install-hooks`
+- File re-read detection, thinking-token distribution, denial stats, skill/MCP attribution,
+  lines added/removed (deferred to v2)
+
+## Assumptions
+
+- The user is on macOS/Linux; Windows support is untested and unclaimed in v1.
+- `~/.claude/projects/` is the only transcript location. No custom `CLAUDE_CONFIG_DIR` handling in v1.
+- One `.jsonl` file = one session, even when `--resume` appended to it or `fork-context-ref`
+  records are present. Multi-version sessions are surfaced in diagnostics, not split.
+- Displayed cost, where present, is API-rate cost. If the user is on a subscription, it is
+  notional. README must say so.
+
+## Conventions
+
+- **Structure:** `src/parse/` (JSONL → records), `src/model/` (records → event model),
+  `src/metrics/` (event model → Profile), `src/artifact/` (Profile JSON read/write + schema),
+  `src/tui/` (Ink components), `src/cli/` (arg parsing, commands), `src/hooks/` (install/uninstall/sidecar).
+  Strict one-directional dependency: `cli → tui → artifact → metrics → model → parse`.
+  Nothing lower imports from higher.
+- **Naming:** files `kebab-case.ts`, types `PascalCase`, functions `camelCase`.
+  Every duration field ends in `Ms`; every timestamp field ends in `At` and is ISO 8601.
+- **Errors:** parse-level problems never throw — they increment a counter in `diagnostics`.
+  Only user-facing failures (no such session, unreadable file) throw, and they exit with a
+  message naming the file and the next step. Never swallow an error silently.
+- **Honesty rule (enforced in review):** no UI label may call a derived number exact.
+  Tool durations are "tool + approvals" until a hook sidecar is merged.
+- **Tests:** Vitest. Every metric function gets unit tests over hand-built fixtures.
+  A corpus smoke test runs the parser over every local transcript and asserts zero crashes.
+- **Commits:** Conventional Commits, English.
+
+## Milestones
+
+1. **M1 — Parser + event model:** any local transcript parses into a typed event stream without crashing.
+2. **M2 — Metrics + artifact:** `--json` emits a complete, invariant-checked Profile.
+3. **M3 — TUI:** interactive Overview / Timeline / Context with drill-down and subagents.
+4. **M4 — Hooks:** opt-in exact timings for future sessions, merged when present.
+5. **M5 — Ship:** README, npx packaging, corpus smoke test green.
+
+---
+
+## Tasks
+
+### T1 — Scaffold the project
+- **Depends on:** none
+- **Goal:** A runnable TypeScript CLI skeleton that `npx` can execute.
+- **Files:** `package.json`, `tsconfig.json`, `vitest.config.ts`, `src/cli/index.ts`, `.gitignore`, `src/cli/bin.ts`
+- **Steps:**
+  1. Init npm package `claude-profiler`, `"type": "module"`, `bin` → `dist/cli/bin.js`, Node 20+ engine.
+  2. TypeScript strict mode, ESM, build to `dist/`.
+  3. Add Ink, Vitest, a small arg parser (`citty` or hand-rolled — no heavyweight framework).
+  4. `src/cli/index.ts` parses: positional `<sessionId>`, flags `--json`, `--out <path>`, `--version`, `--help`.
+- **Acceptance criteria:**
+  - `npm run build && node dist/cli/bin.js --help` prints usage and exits 0.
+  - `--version` prints the package version.
+- **Verify:** `npm run build && node dist/cli/bin.js --help`
+
+### T2 — Lenient JSONL parser
+- **Depends on:** T1
+- **Goal:** Stream a transcript into typed records without ever crashing (FR1, FR2, FR3).
+- **Files:** `src/parse/types.ts` (create), `src/parse/parse-transcript.ts` (create), `src/parse/parse-transcript.test.ts` (create)
+- **Steps:**
+  1. Define discriminated union `TranscriptRecord` for the 13 known `type` values in FR3.
+     Every field beyond `type` is optional — the schema drifts across 14 CC versions.
+  2. Stream the file line by line (`readline` over a read stream), never load it whole.
+  3. On `JSON.parse` failure: increment `skippedLines`, continue. On unknown `type`:
+     record it in `unknownRecordTypes`, continue.
+  4. Return `{ records, diagnostics }`.
+- **Acceptance criteria:**
+  - A file with a truncated final line parses and reports `skippedLines: 1`.
+  - A record with an invented `type` lands in `unknownRecordTypes` and does not throw.
+  - Parsing the 95 MB transcript stays under 500 MB peak RSS.
+- **Verify:** `npx vitest run src/parse` plus
+  `node --expose-gc -e "..."` memory check against the largest local transcript.
+
+### T3 — Corpus smoke test
+- **Depends on:** T2
+- **Goal:** Prove the parser survives every version in the wild before building on it.
+- **Files:** `test/corpus.test.ts` (create)
+- **Steps:**
+  1. Glob every `*.jsonl` under `~/.claude/projects/`. Skip the whole suite with a clear
+     message when the directory is absent, so CI on a clean machine still passes.
+  2. Parse each; assert no throw; collect the set of CC versions and record types seen.
+  3. Print a summary table: files, total records, skipped lines, distinct versions.
+- **Acceptance criteria:**
+  - All local transcripts parse with zero thrown errors.
+  - The summary reports at least the versions `2.1.219`–`2.1.273`.
+- **Verify:** `npx vitest run test/corpus.test.ts`
+
+### T4 — Event model
+- **Depends on:** T2
+- **Goal:** Turn flat records into a timeline of typed, timestamped events with tool_use ↔ tool_result matched.
+- **Files:** `src/model/events.ts` (create), `src/model/build-model.ts` (create), `src/model/build-model.test.ts` (create)
+- **Steps:**
+  1. Sort records by timestamp; records without one are kept but excluded from timing.
+  2. Walk assistant messages, emitting one `ToolUseEvent` per `tool_use` block, keyed by `id`.
+  3. Walk user messages, matching `tool_result.tool_use_id` back to the pending `tool_use`;
+     compute `durationMs`. Unmatched `tool_use` → `durationMs: null`, `unfinished: true` (FR10).
+  4. Emit `AssistantEvent` (with usage, model, stop_reason), `UserPromptEvent`
+     (a `user` record that is neither a `tool_result` nor `isMeta`), `SystemEvent`.
+  5. Assign a `turnIndex`, incrementing at each `UserPromptEvent`.
+- **Acceptance criteria:**
+  - Two `tool_use` blocks in one assistant message produce two events sharing a start time.
+  - An interrupted transcript (tool_use with no result) yields `durationMs: null`, not a crash.
+  - `turnIndex` is monotonic and starts at 0.
+- **Verify:** `npx vitest run src/model`
+
+### T5 — Time split with interval merging
+- **Depends on:** T4
+- **Goal:** The headline metric: Model / Tools+approvals / You / unaccounted, summing to exactly the session span (FR4–FR9, D12).
+- **Files:** `src/metrics/time-split.ts` (create), `src/metrics/interval.ts` (create), `src/metrics/time-split.test.ts` (create)
+- **Steps:**
+  1. Implement `mergeIntervals(intervals): Interval[]` — sort by start, coalesce overlaps.
+  2. Build tool intervals from every matched `ToolUseEvent`; merge them (parallel calls overlap).
+  3. Build model intervals: `[timestamp(previous timestamped event), timestamp(assistant)]`.
+  4. Build user intervals: from an assistant event whose `stop_reason !== "tool_use"`
+     to the next `UserPromptEvent`.
+  5. Merge each bucket, then subtract in priority order tools → model → user so buckets stay
+     mutually exclusive. Residual = span − sum, reported as `unaccountedMs` (never hidden).
+  6. Set `toolsIncludeApprovals: true` and `precision: "derived"`.
+- **Acceptance criteria:**
+  - `modelMs + toolsMs + userMs + unaccountedMs === spanMs` exactly, asserted on every local
+    transcript in the corpus test.
+  - Three parallel 10s tool calls in one message contribute 10s to `toolsMs`, not 30s.
+  - `unaccountedMs >= 0` always.
+- **Verify:** `npx vitest run src/metrics/time-split.test.ts` and re-run T3's corpus test with the invariant added
+
+### T6 — Tool statistics and outlier detection
+- **Depends on:** T4
+- **Goal:** The tool table, with the median/outlier defence against single idle calls (FR5, FR11, FR12).
+- **Files:** `src/metrics/tool-stats.ts` (create), `src/metrics/tool-stats.test.ts` (create)
+- **Steps:**
+  1. Group matched tool events by `name`. Classify `kind`: `Task` → `"task"`,
+     `mcp__*` → `"mcp"` (parse `mcpServer` from the `mcp__<server>__<tool>` shape), else `"builtin"`.
+  2. Compute `calls`, `totalMs`, `medianMs`, `p90Ms`, `maxMs`, `typicalMs = medianMs * calls`,
+     `pctOfSession`, `unfinishedCount`.
+  3. Flag outliers: `durationMs > max(medianMs * 5, 30_000)`. Count into `outlierCount`.
+  4. Emit `ToolCall[]` with `inputPreview` truncated to 200 chars.
+- **Acceptance criteria:**
+  - On session `54fd3ef0`, `mcp__claude-in-chrome__computer` reports `calls: 20`,
+    `medianMs ≈ 749`, `maxMs ≈ 1_064_111`, `outlierCount: 1`.
+  - `typicalMs` for that tool is under 30s while `totalMs` is ~18min — the discrepancy the table exists to show.
+- **Verify:** `npx vitest run src/metrics/tool-stats.test.ts`
+
+### T7 — Token, cost and context metrics
+- **Depends on:** T4
+- **Goal:** Exact token accounting, cost only where real, context-growth series (FR15, FR16, FR17).
+- **Files:** `src/metrics/tokens.ts` (create), `src/metrics/cost.ts` (create), `src/metrics/context.ts` (create), plus tests
+- **Steps:**
+  1. Sum `message.usage` per model: input, output, `output_tokens_details.thinking_tokens`,
+     `cache_read_input_tokens`, `cache_creation.ephemeral_1h_input_tokens`, `ephemeral_5m_input_tokens`.
+     Every field is optional in older versions — default to 0.
+  2. Cost: if a `cost-state` record exists, map it into `CostStats` with `source: "cost-state"`.
+     Otherwise return `null`. **Do not estimate. Do not add a price table** (D7).
+  3. Context series: one entry per assistant turn with `cacheReadTokens`, `cacheCreateTokens`,
+     `outputTokens`, `thinkingTokens`.
+- **Acceptance criteria:**
+  - On session `54fd3ef0`: total `cacheRead` is 139,992,949 and `cost.totalCostUSD` ≈ 85.19.
+  - On any session before `2.1.260`, `cost` is `null` and nothing throws.
+- **Verify:** `npx vitest run src/metrics`
+
+### T8 — Subagent resolution
+- **Depends on:** T4, T6
+- **Goal:** Drill from a `Task` call into that subagent's own profile (FR13, FR14).
+- **Files:** `src/model/resolve-subagents.ts` (create), `src/metrics/subagent-stats.ts` (create), plus tests
+- **Steps:**
+  1. Find `agent-*.jsonl` files in the same project dir. Match each to its parent `Task`
+     call — first by any agent id in the tool result, then by time containment
+     (agent span falls inside the parent call span).
+  2. For each matched agent, run the same pipeline (T4–T7) over its transcript.
+  3. Record the match method and confidence in `diagnostics`. An unmatched `Task` still
+     renders as a plain row — never fabricate a link.
+  4. Subagent `cost` is always `null` (verified: 0 of 297 agent files carry `cost-state`).
+- **Acceptance criteria:**
+  - A session with subagents shows a `Task` row whose nested stats sum to that agent's own span.
+  - An ambiguous or unmatched `Task` degrades to a plain row with no subagent data.
+- **Verify:** `npx vitest run src/metrics/subagent-stats.test.ts`, then run against a local session containing `Task` calls
+
+### T9 — Verify what hooks actually measure
+- **Depends on:** T1
+- **Goal:** Settle, empirically, whether `PreToolUse`/`PostToolUse` can isolate approval wait.
+  **This is a spike. Do it before T10 — the result decides what T10 builds.**
+- **Files:** `docs/hook-timing-findings.md` (create)
+- **Steps:**
+  1. Register temporary `PreToolUse` and `PostToolUse` hooks that append
+     `{ hook, sessionId, toolName, toolUseId, at }` to a scratch file.
+  2. Run a session, trigger a tool that requires approval, and **deliberately wait ~30s
+     before approving**.
+  3. Compare the `PreToolUse → PostToolUse` span against the transcript's
+     `tool_use → tool_result` span for that same call.
+  4. Record which fields the hook payload actually carries (`tool_use_id` in particular —
+     without it, correlation back to the transcript is impossible).
+  5. Write findings: does `PreToolUse` fire before or after the permission prompt?
+- **Acceptance criteria:**
+  - `docs/hook-timing-findings.md` states plainly whether approval wait is isolatable, with
+    the measured numbers.
+  - If it is **not** isolatable, the doc says so and T10's goal narrows to exact tool
+    execution time only — `approvalMs` is then dropped from the artifact and the UI.
+- **Verify:** read the doc; the measured 30s delay either appears in the hook span or it does not
+
+### T10 — Hook install and sidecar merge
+- **Depends on:** T9, T5
+- **Goal:** Opt-in exact timings for future sessions (F3, D6). Exact shape governed by T9's findings.
+- **Files:** `src/hooks/install.ts`, `src/hooks/uninstall.ts`, `src/hooks/sidecar.ts`, `src/hooks/hook-script.ts`, plus tests
+- **Steps:**
+  1. `install-hooks`: read `~/.claude/settings.json`, compute the additions, **print the diff
+     and require explicit confirmation** before writing. Back up the original first.
+  2. The hook appends timing records to `~/.claude/profiler/<sessionId>.jsonl`.
+  3. `sidecar.ts`: when a sidecar exists for the profiled session, merge it — set
+     `ToolStat.exactMs`, and `approvalMs = totalMs - exactMs` only if T9 proved it meaningful.
+     Set `TimeSplit.precision = "exact"`.
+  4. `uninstall-hooks`: restore, removing only the entries this tool added.
+- **Acceptance criteria:**
+  - Install then uninstall leaves `settings.json` byte-identical to the original.
+  - Install refuses to proceed without confirmation.
+  - A session with no sidecar profiles exactly as before, with `precision: "derived"`.
+- **Verify:** `npx vitest run src/hooks`, then install → run a short real session → profile it → confirm `precision: "exact"`
+
+### T11 — Profile assembly, schema and `--json`
+- **Depends on:** T5, T6, T7, T8
+- **Goal:** The public artifact (FR18, FR19, FR20, D8).
+- **Files:** `src/artifact/profile.ts`, `src/artifact/schema.ts`, `src/artifact/write.ts`, plus tests
+- **Steps:**
+  1. Assemble the `Profile` object exactly as specced in `SPEC.md` § Data model.
+  2. Define the type as the single source of truth; export a JSON Schema generated from it.
+  3. Runtime-assert the invariants before writing: `schemaVersion === "0.1"`, time split sums
+     to span, no `NaN` in any numeric field.
+  4. Write to `--out` or the default path; `--json` prints to stdout and exits without the TUI.
+- **Acceptance criteria:**
+  - `npx claude-profiler <id> --json | jq .schemaVersion` prints `"0.1"`.
+  - A Profile that violates the time-split invariant throws at write time, not silently.
+- **Verify:** `node dist/cli/bin.js 54fd3ef0-3d6f-48d5-8e4b-41bf3a8d13d8 --json | jq '.timeline'`
+
+### T12 — Session resolution and the picker
+- **Depends on:** T1, T2
+- **Goal:** Find the session the user meant, and ask when it is ambiguous (F1).
+- **Files:** `src/cli/resolve-session.ts`, `src/tui/SessionPicker.tsx`, plus tests
+- **Steps:**
+  1. Scan every project dir for a transcript whose basename matches the given id.
+     Accept a full uuid, a unique prefix, or an `agent-*` name.
+  2. Exactly one match → use it. Several → Ink picker listing project path, date, size, turn count.
+  3. No match → error naming the id and pointing at `--help`; exit 1.
+- **Acceptance criteria:**
+  - A prefix like `54fd3ef0` resolves the full session.
+  - An id present in two project dirs (this exists locally, e.g. `b28d55ce`) opens the picker.
+  - An unknown id exits 1 with a message that names the id.
+- **Verify:** `node dist/cli/bin.js b28d55ce` shows the picker; `node dist/cli/bin.js nope` exits 1
+
+### T13 — TUI: Overview tab
+- **Depends on:** T11
+- **Goal:** The default screen — the time split and the tool table (F2, D10, D11).
+- **Files:** `src/tui/App.tsx`, `src/tui/Overview.tsx`, `src/tui/TimeSplitBar.tsx`, `src/tui/ToolTable.tsx`, `src/tui/format.ts`
+- **Steps:**
+  1. Header: session id, project, date, span, cost (or `—`), model(s), turn count.
+  2. Time split as labelled bars with percentages, and the standing caveat line:
+     approvals are inside the tools bucket, with a pointer to `install-hooks`. Omit the
+     caveat when `precision === "exact"`.
+  3. Tool table sorted by `totalMs` desc: name, totalMs, %, calls, median, outlier count.
+     Render a marker on any row whose `totalMs` and `typicalMs` diverge by more than 3×.
+  4. Keys: `↑↓` select, `⏎` drill in, `⇥` next tab, `s` cycle sort, `/` filter, `q` quit.
+- **Acceptance criteria:**
+  - The four split values shown as percentages sum to 100%.
+  - On session `54fd3ef0`, the `computer` row is visibly marked as outlier-dominated.
+  - No label anywhere calls a derived duration exact.
+- **Verify:** `node dist/cli/bin.js 54fd3ef0-3d6f-48d5-8e4b-41bf3a8d13d8` and navigate
+
+### T14 — TUI: drill-down and subagents
+- **Depends on:** T13, T8
+- **Goal:** From a tool row to its calls, and from a `Task` row into the subagent (F2 steps 3–4).
+- **Files:** `src/tui/ToolDetail.tsx`, `src/tui/CallDetail.tsx`, `src/tui/SubagentDetail.tsx`
+- **Steps:**
+  1. Tool detail: every call sorted by duration desc, outliers marked, showing turn index,
+     start time, duration, truncated input.
+  2. Call detail: full input (scrollable), duration, turn, outlier reason when flagged.
+  3. `Task` row → subagent view with its own time split and tool table; cost shows `—`.
+  4. `Esc` pops one level; maintain a navigation stack so depth is unbounded.
+- **Acceptance criteria:**
+  - Drilling into `computer` puts the 1064s call first and marks it an outlier.
+  - `Esc` from any depth returns to the exact previous screen and selection.
+- **Verify:** run against a local session with subagents and navigate to full depth and back
+
+### T15 — TUI: Timeline and Context tabs
+- **Depends on:** T13
+- **Goal:** Turn-by-turn view and the context-growth chart (FR17).
+- **Files:** `src/tui/Timeline.tsx`, `src/tui/Context.tsx`, `src/tui/Sparkline.tsx`
+- **Steps:**
+  1. Timeline: one row per turn — index, start, duration, model/tools/user split for that
+     turn, tool count, a short prompt preview. `⏎` expands the turn's events.
+  2. Context: `cacheReadTokens` per turn as a sparkline, with min/max/final annotated, plus
+     output and thinking tokens per turn.
+  3. `⇥` cycles Overview → Timeline → Context → Overview; the header shows `[n/3]`.
+- **Acceptance criteria:**
+  - Timeline turn count equals `session.turnCount`.
+  - The Context sparkline renders for a session with 900+ turns without wrapping or tearing.
+- **Verify:** `node dist/cli/bin.js 282c4556-bfc8-4d64-b190-7bc72a20642e` and press `⇥` twice
+
+### T16 — README and packaging
+- **Depends on:** T13, T11
+- **Goal:** Shippable via `npx`, and honest about what the numbers mean.
+- **Files:** `README.md`, `LICENSE`, `package.json` (modify), `.github/workflows/ci.yml`
+- **Steps:**
+  1. README: what it does, `npx claude-profiler <sessionId>`, a screenshot of the Overview,
+     the keybindings, and the JSON artifact documented with `schemaVersion 0.1` marked
+     **unstable until 1.0**.
+  2. A prominent **"What these numbers mean"** section: tool durations include approval and
+     idle wait; cost appears only when the session has a `cost-state` record (CC ≥ 2.1.260
+     and a clean exit); where cost is shown it is API-rate, notional on a subscription.
+  3. Note that transcripts contain source code and prompts and that everything stays local.
+  4. MIT license. CI runs build + unit tests (corpus test skips without `~/.claude`).
+  5. `files` in package.json limited to `dist/` and `README.md`; verify with `npm pack --dry-run`.
+- **Acceptance criteria:**
+  - `npm pack --dry-run` lists no source, no tests, no fixtures.
+  - A reader who only reads the README cannot come away thinking tool durations are exact.
+- **Verify:** `npm pack --dry-run && npx ./claude-profiler-0.1.0.tgz --help`
+
+---
+
+## Open questions
+
+- **T9 blocks T10's shape.** Whether `PreToolUse` fires before or after the permission
+  prompt is unverified. If it fires before, hooks give exact *total* time but still cannot
+  isolate approval wait — in that case `approvalMs` must be dropped from the artifact and
+  the UI rather than shipped as a guess. Resolve by running T9 before writing T10.
+- **Subagent matching confidence (T8).** Whether the `Task` tool result carries a usable
+  agent id, or whether time containment is the only available heuristic, is unverified.
+  If only time containment works, ambiguous matches must be left unlinked, not guessed.
+- **Cost (D7).** Deferred by the user, not resolved. Revisit after v1: whether to bundle a
+  price snapshot so cost works in the other ~97.6% of sessions.
