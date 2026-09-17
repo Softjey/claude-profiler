@@ -170,6 +170,19 @@ export function ModelRequestList({ breakdown, nav, sortKey }: ModelRequestListPr
   );
 }
 
+/**
+ * Plain words for the coefficient, so the number is readable without
+ * recalling what r means. Deliberately blunt at the low end: "no relationship
+ * worth acting on" is the answer most sessions get, and burying it behind a
+ * bare 0.13 invites reading a trend into noise.
+ */
+function describeCorrelation(r: number): string {
+  const strength = Math.abs(r);
+  if (strength < 0.3) return "— no relationship worth acting on";
+  if (strength < 0.6) return r > 0 ? "— a weak pull upwards" : "— a weak pull downwards";
+  return r > 0 ? "— bigger prompts really are slower here" : "— bigger prompts are oddly faster here";
+}
+
 const ROLLUP_KEY_WIDTH = 34;
 
 function RollupTable({ title, rows }: { title: string; rows: ModelRollup[] }): React.JSX.Element {
@@ -207,6 +220,7 @@ function RollupTable({ title, rows }: { title: string; rows: ModelRollup[] }): R
  * you can act on in a way that "thinking: 58%" is not.
  */
 export function ModelRollups({ breakdown }: { breakdown: ModelBreakdown }): React.JSX.Element {
+  const { contextLatency } = breakdown;
   return (
     <Box flexDirection="column">
       <Text dimColor>the same {formatMs(breakdown.totalMs)}, grouped by what caused each request</Text>
@@ -214,6 +228,18 @@ export function ModelRollups({ breakdown }: { breakdown: ModelBreakdown }): Reac
         <RollupTable title="By what handed control back" rows={breakdown.byCause} />
         <RollupTable title="By model" rows={breakdown.byModel} />
         <RollupTable title="By thinking effort" rows={breakdown.byEffort} />
+      </Box>
+      <Box flexDirection="column">
+        <Text bold>Does a bigger prompt mean a slower first block?</Text>
+        {contextLatency === null ? (
+          <Text dimColor>{"  "}too few comparable requests in this session to say</Text>
+        ) : (
+          <Text>
+            {"  "}r = {contextLatency.correlation.toFixed(2)} over {contextLatency.requests} request
+            {contextLatency.requests === 1 ? "" : "s"}{" "}
+            <Text dimColor>{describeCorrelation(contextLatency.correlation)}</Text>
+          </Text>
+        )}
       </Box>
     </Box>
   );

@@ -266,6 +266,38 @@ describe("computeModelBreakdown", () => {
     expect(breakdown.phases[0]).toMatchObject({ kind: "text", position: "first", ms: 6000 });
   });
 
+  it("correlates context size with first-block latency, and says nothing when it cannot", () => {
+    // Ten requests where a bigger prompt really does take longer: context
+    // climbs by 10k a step, the first block by a second a step.
+    const records: TranscriptRecord[] = [];
+    for (let i = 0; i < 10; i++) {
+      const minute = String(i * 2).padStart(2, "0");
+      const endSecond = String(1 + i).padStart(2, "0");
+      records.push(
+        userPrompt(`u${i}`, `2026-01-01T00:${minute}:00.000Z`),
+        assistant(`a${i}`, `2026-01-01T00:${minute}:${endSecond}.000Z`, [text()], {
+          requestId: `req_${i}`,
+          stopReason: "end_turn",
+          usage: { ...USAGE, output_tokens: 2000, cache_read_input_tokens: 10_000 * (i + 1) },
+        }),
+      );
+    }
+    const { events, toolUses } = buildEventModel(records);
+    const breakdown = computeModelBreakdown(events, toolUses);
+
+    expect(breakdown.contextLatency?.requests).toBe(10);
+    expect(breakdown.contextLatency?.correlation ?? 0).toBeGreaterThan(0.9);
+  });
+
+  it("reports no correlation rather than a made-up one on a short session", () => {
+    const records: TranscriptRecord[] = [
+      userPrompt("u1", "2026-01-01T00:00:00.000Z"),
+      assistant("a1", "2026-01-01T00:00:04.000Z", [text()], { stopReason: "end_turn", usage: USAGE }),
+    ];
+    const { events, toolUses } = buildEventModel(records);
+    expect(computeModelBreakdown(events, toolUses).contextLatency).toBeNull();
+  });
+
   it("returns an empty breakdown for a transcript with no assistant records", () => {
     const { events, toolUses } = buildEventModel([userPrompt("u1", "2026-01-01T00:00:00.000Z")]);
     const breakdown = computeModelBreakdown(events, toolUses);

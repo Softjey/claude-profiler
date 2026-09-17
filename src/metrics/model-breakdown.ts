@@ -103,6 +103,14 @@ export interface ModelBreakdown {
   suspectMs: number;
   /** The tokens-per-second below which a long request was called stalled. */
   stallThresholdTokensPerSec: number;
+  /**
+   * How strongly a bigger prompt went with a slower first block, as a
+   * Pearson correlation over the session's own non-suspect requests, or null
+   * when there are too few to say anything. Answers "is my context making
+   * this slow?" with a number instead of a hunch — and answers it "no" as
+   * readily as "yes".
+   */
+  contextLatency: { correlation: number; requests: number } | null;
   byCause: ModelRollup[];
   byModel: ModelRollup[];
   byEffort: ModelRollup[];
@@ -141,6 +149,32 @@ function stallThreshold(ratesPerSec: number[]): number {
   const median =
     sorted.length % 2 === 0 ? ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2 : (sorted[mid] ?? 0);
   return Math.max(STALL_ABSOLUTE_TOKENS_PER_SEC, median * STALL_RELATIVE_FRACTION);
+}
+
+/** Below this many points a correlation says more about the sample than the session. */
+const CORRELATION_MIN_SAMPLE = 8;
+
+/**
+ * Pearson correlation, or null when the sample is too small or one side does
+ * not vary at all (every request carrying the same context, say) — in which
+ * case the coefficient is undefined rather than zero.
+ */
+function correlation(xs: number[], ys: number[]): number | null {
+  if (xs.length < CORRELATION_MIN_SAMPLE || xs.length !== ys.length) return null;
+  const meanX = xs.reduce((sum, x) => sum + x, 0) / xs.length;
+  const meanY = ys.reduce((sum, y) => sum + y, 0) / ys.length;
+  let covariance = 0;
+  let varianceX = 0;
+  let varianceY = 0;
+  for (let i = 0; i < xs.length; i++) {
+    const dx = (xs[i] ?? 0) - meanX;
+    const dy = (ys[i] ?? 0) - meanY;
+    covariance += dx * dy;
+    varianceX += dx * dx;
+    varianceY += dy * dy;
+  }
+  if (varianceX === 0 || varianceY === 0) return null;
+  return covariance / Math.sqrt(varianceX * varianceY);
 }
 
 function usageTokens(event: AssistantEvent): {
@@ -367,6 +401,17 @@ export function computeModelBreakdown(events: ModelEvent[], toolUses: ToolUseEve
     suspect,
     suspectMs: suspect.reduce((sum, entry) => sum + entry.ms, 0),
     stallThresholdTokensPerSec: threshold,
+    contextLatency: (() => {
+      // Suspect requests are excluded on purpose: a four-hour sleep would
+      // dominate the correlation and turn it into a statement about that one
+      // outlier rather than about context size.
+      const measurable = requests.filter((request) => request.suspect === null && request.contextTokens > 0);
+      const r = correlation(
+        measurable.map((request) => request.contextTokens),
+        measurable.map((request) => request.firstBlockMs),
+      );
+      return r === null ? null : { correlation: r, requests: measurable.length };
+    })(),
     byCause: rollup(
       requests.map((request) => ({
         key: request.cause.kind === "tool" ? `after ${request.cause.name}` : request.cause.kind === "prompt" ? "after your prompt" : "other",

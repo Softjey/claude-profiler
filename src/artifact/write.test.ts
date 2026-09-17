@@ -68,6 +68,7 @@ function minimalProfile(sessionId: string): Profile {
       suspect: [],
       suspectMs: 0,
       stallThresholdTokensPerSec: 1,
+      contextLatency: null,
       byCause: [{ key: "after your prompt", ms: 3000, requests: 1, pctOfModel: 1 }],
       byModel: [{ key: "claude-sonnet-5", ms: 3000, requests: 1, pctOfModel: 1 }],
       byEffort: [{ key: "high", ms: 3000, requests: 1, pctOfModel: 1 }],

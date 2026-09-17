@@ -234,6 +234,7 @@ describe("assertProfileInvariants", () => {
         suspect: [],
         suspectMs: 0,
         stallThresholdTokensPerSec: 1,
+        contextLatency: null,
         byCause: [],
         byModel: [],
         byEffort: [],

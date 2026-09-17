@@ -42,6 +42,7 @@ function makeBreakdown(overrides: Partial<ModelBreakdown> = {}): ModelBreakdown 
     suspect: [],
     suspectMs: 0,
     stallThresholdTokensPerSec: 4.2,
+    contextLatency: null,
     byCause: [{ key: "after Bash", ms: 5000, requests: 1, pctOfModel: 1 }],
     byModel: [{ key: "claude-sonnet-5", ms: 5000, requests: 1, pctOfModel: 1 }],
     byEffort: [{ key: "high", ms: 5000, requests: 1, pctOfModel: 1 }],
@@ -145,6 +146,33 @@ describe("ModelRollups", () => {
     expect(frame).toContain("By model");
     expect(frame).toContain("By thinking effort");
     expect(frame).toContain("claude-sonnet-5");
+  });
+});
+
+describe("ModelRollups context/latency line", () => {
+  it("answers the context question in words, not just a coefficient", () => {
+    const { lastFrame } = render(
+      createElement(ModelRollups, {
+        breakdown: makeBreakdown({ contextLatency: { correlation: 0.12, requests: 40 } }),
+      }),
+    );
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("r = 0.12 over 40 requests");
+    expect(frame).toContain("no relationship worth acting on");
+  });
+
+  it("calls a real relationship what it is", () => {
+    const { lastFrame } = render(
+      createElement(ModelRollups, {
+        breakdown: makeBreakdown({ contextLatency: { correlation: 0.71, requests: 40 } }),
+      }),
+    );
+    expect(lastFrame() ?? "").toContain("bigger prompts really are slower here");
+  });
+
+  it("refuses to answer at all when the sample is too small", () => {
+    const { lastFrame } = render(createElement(ModelRollups, { breakdown: makeBreakdown() }));
+    expect(lastFrame() ?? "").toContain("too few comparable requests");
   });
 });
 
