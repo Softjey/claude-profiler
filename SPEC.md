@@ -85,9 +85,14 @@ Open source from day one. No telemetry, no network calls in v1, nothing leaves t
 - **FR5** — Tool span = `timestamp(tool_result)` − `timestamp(tool_use)`, matched by
   `tool_use_id`. Labelled everywhere as **"tool + approvals"**, never as "tool time".
 - **FR6** — Model span = `timestamp(assistant)` − `timestamp(previous timestamped event)`.
-- **FR7** — User span = gap from an assistant message that ended a turn (`stop_reason`
-  is not `tool_use`) to the next genuine user prompt (a `user` record that is not a
-  `tool_result` and not `isMeta`).
+- **FR7** — User span = gap from a completed turn's end to the next genuine user prompt
+  (a `user` record that is not a `tool_result`, not `isMeta`, and not CC's own
+  "[Request interrupted by user(...)]" marker). A turn completes either normally (an
+  assistant message with `stop_reason` not `tool_use`) or by the person cutting it off
+  mid-tool-call, in which case the marker record itself — not the last `tool_use` — is the
+  turn's end. Without this, an interrupted turn never produces an `end_turn`-equivalent
+  record, so the entire time the person was away falls into "unaccounted" (FR9) instead of
+  "You", however long that gap actually was.
 - **FR8** — **Parallel tool calls must not be double-counted.** Several `tool_use` blocks
   in one assistant message run concurrently. For the session-level Model/Tools/You split,
   merge overlapping intervals before summing. Per-tool totals keep the raw per-call sums

@@ -73,9 +73,32 @@ function isToolResultCarrier(record: UserRecord): boolean {
   return content.some((block) => block.type === "tool_result");
 }
 
+/**
+ * CC writes exactly these two strings (nothing else) when the person cuts a
+ * turn off mid-flight, as a plain-text `user` record. Matched verbatim,
+ * never as a substring, so a person's own message that happens to quote one
+ * is never misread as the harness talking.
+ */
+const INTERRUPTION_MARKERS = new Set([
+  "[Request interrupted by user]",
+  "[Request interrupted by user for tool use]",
+]);
+
+function interruptionMarkerText(record: UserRecord): string | undefined {
+  const content = record.message?.content;
+  const text =
+    typeof content === "string"
+      ? content
+      : Array.isArray(content) && content.length === 1 && isTextBlock(content[0] as ContentBlock)
+        ? ((content[0] as TextBlock).text ?? "")
+        : undefined;
+  return text !== undefined && INTERRUPTION_MARKERS.has(text) ? text : undefined;
+}
+
 function isGenuinePrompt(record: UserRecord): boolean {
   if (record.isMeta) return false;
-  return !isToolResultCarrier(record);
+  if (isToolResultCarrier(record)) return false;
+  return interruptionMarkerText(record) === undefined;
 }
 
 /**
@@ -103,6 +126,13 @@ export function buildEventModel(records: TranscriptRecord[]): EventModel {
           at: record.timestamp ?? null,
           turnIndex,
           preview: extractPromptPreview(record.message?.content),
+        });
+      } else if (interruptionMarkerText(record) !== undefined) {
+        events.push({
+          type: "interruption",
+          uuid: record.uuid,
+          at: record.timestamp ?? null,
+          turnIndex: turnIndex < 0 ? 0 : turnIndex,
         });
       } else if (isToolResultCarrier(record)) {
         const content = record.message?.content as ContentBlock[];

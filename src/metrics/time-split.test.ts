@@ -108,6 +108,32 @@ describe("computeTimeSplit", () => {
     expect(split.userGaps.reduce((sum, gap) => sum + gap.gapMs, 0)).toBe(split.userMs);
   });
 
+  it("closes the You gap at a mid-tool-call interruption, not at the next completed turn", () => {
+    const records: TranscriptRecord[] = [
+      userPrompt("u1", "2026-01-01T00:00:00.000Z"),
+      assistant(
+        "a1",
+        "2026-01-01T00:00:01.000Z",
+        [toolUseBlock("t1")],
+        "tool_use",
+      ),
+      // person hits Esc mid-call: CC writes its own marker record instead of
+      // ever producing an end_turn/etc. assistant record for this turn
+      userPrompt("u2", "2026-01-01T00:00:05.000Z", "[Request interrupted by user for tool use]"),
+      userPrompt("u3", "2026-01-01T03:00:05.000Z", "спробуй ще раз"), // 3h away
+    ];
+
+    const { events, toolUses } = buildEventModel(records);
+    const split = computeTimeSplit(events, toolUses);
+
+    expect(split.userGaps).toEqual([{ preview: "спробуй ще раз", gapMs: 3 * 60 * 60 * 1000 }]);
+    // The 4s between the tool_use starting and the interruption is genuinely
+    // unknown — it never got a tool_result, so it's neither toolsMs (FR10)
+    // nor part of the 3h "You" gap, which starts only at the interruption.
+    expect(split.unaccountedMs).toBe(4000);
+    expect(split.modelMs + split.toolsMs + split.userMs + split.unaccountedMs).toBe(split.spanMs);
+  });
+
   it("merges three parallel 10s tool calls into 10s of toolsMs, not 30s", () => {
     const records: TranscriptRecord[] = [
       userPrompt("u1", "2026-01-01T00:00:00.000Z"),

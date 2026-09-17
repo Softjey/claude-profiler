@@ -108,6 +108,14 @@ interface RawUserGap {
  * splits a reply into a record per content block, so an end_turn reply
  * written as thinking + text yields two records and the same pause is
  * counted twice (D-follow-up).
+ *
+ * A turn a person cut off mid tool-call never gets an `end_turn`/etc.
+ * assistant record — CC writes its "[Request interrupted…]" marker instead
+ * (an `InterruptionEvent`, build-model.ts) and moves straight to whatever the
+ * person types next. That marker is just as much a turn-end as a completed
+ * assistant reply, so it closes the gap the same way; without this, the
+ * entire time away (which can be hours) falls out of every bucket into
+ * "unaccounted" instead of "You".
  */
 function collectRawUserGaps(events: ModelEvent[]): RawUserGap[] {
   const gaps: RawUserGap[] = [];
@@ -119,7 +127,11 @@ function collectRawUserGaps(events: ModelEvent[]): RawUserGap[] {
 
     for (let j = i - 1; j >= 0; j--) {
       const previous = events[j];
-      if (!previous || previous.type !== "assistant" || previous.stopReason === "tool_use") continue;
+      if (!previous) continue;
+      const isCompletedTurn =
+        previous.type === "interruption" ||
+        (previous.type === "assistant" && previous.stopReason !== "tool_use");
+      if (!isCompletedTurn) continue;
       const turnEndMs = parseMs(previous.at);
       if (turnEndMs !== null) {
         gaps.push({ startMs: turnEndMs, endMs: promptMs, preview: event.preview });

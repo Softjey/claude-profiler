@@ -164,6 +164,41 @@ describe("buildEventModel", () => {
     ).toEqual([false, false, true]);
   });
 
+  it("emits an interruption event for CC's own marker text, not a user_prompt", () => {
+    const records: TranscriptRecord[] = [
+      userPrompt("u1", "2026-01-01T00:00:00.000Z"),
+      assistant(
+        "a1",
+        "2026-01-01T00:00:01.000Z",
+        [{ type: "tool_use", id: "t1", name: "Bash", input: {} }],
+        "tool_use",
+      ),
+      userPrompt("u2", "2026-01-01T00:00:05.000Z", "[Request interrupted by user for tool use]"),
+      userPrompt("u3", "2026-01-01T00:10:00.000Z", "спробуй ще раз"),
+    ];
+
+    const { events } = buildEventModel(records);
+
+    const prompts = events.filter((e) => e.type === "user_prompt");
+    expect(prompts.map((e) => e.preview)).toEqual(["hi", "спробуй ще раз"]);
+    expect(prompts.map((e) => e.turnIndex)).toEqual([0, 1]);
+
+    const interruptions = events.filter((e) => e.type === "interruption");
+    expect(interruptions).toHaveLength(1);
+    expect(interruptions[0]?.at).toBe("2026-01-01T00:00:05.000Z");
+  });
+
+  it("does not mistake a genuine prompt that merely quotes the marker text for the marker itself", () => {
+    const records: TranscriptRecord[] = [
+      userPrompt("u1", "2026-01-01T00:00:00.000Z", "why does it say [Request interrupted by user]?"),
+    ];
+
+    const { events } = buildEventModel(records);
+
+    expect(events.filter((e) => e.type === "user_prompt")).toHaveLength(1);
+    expect(events.filter((e) => e.type === "interruption")).toHaveLength(0);
+  });
+
   it("excludes untimed records from timing but keeps them in the event list", () => {
     const records: TranscriptRecord[] = [
       userPrompt("u1", "2026-01-01T00:00:00.000Z"),

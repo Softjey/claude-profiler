@@ -49,7 +49,23 @@ export interface SystemEvent {
   level: string | undefined;
 }
 
-export type ModelEvent = ToolUseEvent | AssistantEvent | UserPromptEvent | SystemEvent;
+/**
+ * CC's own "[Request interrupted by user(...)]" marker: a `user` record that
+ * looks like a prompt (not `isMeta`, not a tool_result carrier) but is
+ * actually the harness closing the turn the person just cut off, not
+ * something they typed. It is never a genuine prompt (never bumps
+ * `turnIndex`, never appears in the "You" drill-down's prompt list), but it
+ * is the true end of the interrupted turn — the boundary time-split.ts needs
+ * to close the "You" gap instead of leaving it unaccounted (D-follow-up).
+ */
+export interface InterruptionEvent {
+  type: "interruption";
+  uuid: string | undefined;
+  at: string | null;
+  turnIndex: number;
+}
+
+export type ModelEvent = ToolUseEvent | AssistantEvent | UserPromptEvent | SystemEvent | InterruptionEvent;
 
 export interface EventModel {
   events: ModelEvent[];
