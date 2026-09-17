@@ -89,6 +89,25 @@ describe("computeTimeSplit", () => {
     ]);
   });
 
+  it("counts one gap when the closing reply is split across several records", () => {
+    const records: TranscriptRecord[] = [
+      userPrompt("u1", "2026-01-01T00:00:00.000Z"),
+      // one reply, three records: CC writes a record per content block and
+      // every one of them carries stop_reason end_turn
+      assistant("a1", "2026-01-01T00:00:01.000Z", [{ type: "thinking", thinking: "…" }], "end_turn"),
+      assistant("a2", "2026-01-01T00:00:02.000Z", [{ type: "text", text: "done" }], "end_turn"),
+      assistant("a3", "2026-01-01T00:00:03.000Z", [{ type: "text", text: "!" }], "end_turn"),
+      userPrompt("u2", "2026-01-01T00:00:13.000Z", "second prompt"),
+    ];
+
+    const { events, toolUses } = buildEventModel(records);
+    const split = computeTimeSplit(events, toolUses);
+
+    // 10s once, measured from the last record of the reply — not 12 + 11 + 10
+    expect(split.userGaps).toEqual([{ preview: "second prompt", gapMs: 10_000 }]);
+    expect(split.userGaps.reduce((sum, gap) => sum + gap.gapMs, 0)).toBe(split.userMs);
+  });
+
   it("merges three parallel 10s tool calls into 10s of toolsMs, not 30s", () => {
     const records: TranscriptRecord[] = [
       userPrompt("u1", "2026-01-01T00:00:00.000Z"),

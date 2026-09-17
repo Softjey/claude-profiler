@@ -1,13 +1,69 @@
 import { Box, Text, useInput } from "ink";
 import type { ExactToolStat } from "../hooks/sidecar.js";
+import type { BashGroupStat } from "../metrics/bash-groups.js";
 import type { ToolCall } from "../metrics/tool-stats.js";
 import type { NavScreen, ScreenProps } from "./shell.js";
-import { formatDateTime, formatMs, truncate } from "./format.js";
+import { formatDateTime, formatMs, formatPercent, truncate } from "./format.js";
 import { callDetailScreen } from "./CallDetail.js";
 import { subagentDetailScreen } from "./SubagentDetail.js";
 
 const NAME_WIDTH = 34;
 const VISIBLE_ROWS = 15;
+const VISIBLE_GROUP_ROWS = 8;
+
+/**
+ * Read-only breakdown of a Bash tool's calls by leading command (git, pnpm,
+ * find, ...) so a heavy habit shows up on its own instead of hiding inside
+ * one aggregate "Bash" row (bash-groups.ts). No selection of its own: it
+ * sits above the existing per-call list, which still drills into calls.
+ */
+function BashGroupsTable({ groups }: { groups: BashGroupStat[] }): React.JSX.Element {
+  const rows = groups.slice(0, VISIBLE_GROUP_ROWS);
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Text bold>By command</Text>
+      <Box>
+        <Box width={16} flexShrink={0}>
+          <Text bold>Group</Text>
+        </Box>
+        <Box width={10} flexShrink={0}>
+          <Text bold>Total</Text>
+        </Box>
+        <Box width={8} flexShrink={0}>
+          <Text bold>%</Text>
+        </Box>
+        <Box width={7} flexShrink={0}>
+          <Text bold>Calls</Text>
+        </Box>
+        <Box width={10} flexShrink={0}>
+          <Text bold>Median</Text>
+        </Box>
+      </Box>
+      {rows.map((group) => (
+        <Box key={group.group}>
+          <Box width={16} flexShrink={0}>
+            <Text wrap="truncate-end">{group.group}</Text>
+          </Box>
+          <Box width={10} flexShrink={0}>
+            <Text>{formatMs(group.totalMs)}</Text>
+          </Box>
+          <Box width={8} flexShrink={0}>
+            <Text>{formatPercent(group.pctOfBash)}</Text>
+          </Box>
+          <Box width={7} flexShrink={0}>
+            <Text>{group.calls}</Text>
+          </Box>
+          <Box width={10} flexShrink={0}>
+            <Text>{formatMs(group.medianMs)}</Text>
+          </Box>
+        </Box>
+      ))}
+      {groups.length > VISIBLE_GROUP_ROWS ? (
+        <Text dimColor>… and {groups.length - VISIBLE_GROUP_ROWS} more</Text>
+      ) : null}
+    </Box>
+  );
+}
 
 function sortCallsByDuration(calls: ToolCall[]): ToolCall[] {
   // unfinished calls (durationMs: null, FR10) sort last rather than first/undefined
@@ -72,6 +128,7 @@ export function ToolDetailScreen({ tool, profile, nav }: ToolDetailScreenProps):
         {tool.name} — {calls.length} call{calls.length === 1 ? "" : "s"}, {formatMs(tool.totalMs)} total, median{" "}
         {formatMs(tool.medianMs)}
       </Text>
+      {tool.bashGroups && tool.bashGroups.length > 1 ? <BashGroupsTable groups={tool.bashGroups} /> : null}
       <Box marginTop={1}>
         <Box width={5}>
           <Text bold>Turn</Text>

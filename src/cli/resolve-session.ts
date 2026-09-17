@@ -143,6 +143,8 @@ async function toListing(candidate: CandidateFile): Promise<SessionListing> {
   let customTitle: string | undefined;
   let aiTitle: string | undefined;
   let firstUserText: string | undefined;
+  let firstTimestampMs: number | undefined;
+  let lastTimestampMs: number | undefined;
   for (const record of parsed.records) {
     if (cwd === undefined && record.cwd !== undefined) {
       cwd = record.cwd;
@@ -159,7 +161,17 @@ async function toListing(candidate: CandidateFile): Promise<SessionListing> {
     if (record.type === "ai-title" && record.aiTitle) {
       aiTitle = record.aiTitle;
     }
+    const recordMs = record.timestamp ? Date.parse(record.timestamp) : NaN;
+    if (!Number.isNaN(recordMs)) {
+      firstTimestampMs ??= recordMs;
+      lastTimestampMs = recordMs;
+    }
   }
+
+  const durationMs =
+    firstTimestampMs !== undefined && lastTimestampMs !== undefined
+      ? lastTimestampMs - firstTimestampMs
+      : undefined;
 
   return {
     id: candidate.id,
@@ -169,6 +181,7 @@ async function toListing(candidate: CandidateFile): Promise<SessionListing> {
     date: fileStat.mtime,
     sizeBytes: fileStat.size,
     turnCount,
+    durationMs,
     title: cleanTitle(customTitle ?? aiTitle ?? firstUserText),
   };
 }

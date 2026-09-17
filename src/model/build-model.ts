@@ -89,6 +89,7 @@ export function buildEventModel(records: TranscriptRecord[]): EventModel {
   const events: ModelEvent[] = [];
   const toolUses: ToolUseEvent[] = [];
   const pendingToolUses = new Map<string, ToolUseEvent>();
+  const requestIdsWithCountedUsage = new Set<string>();
 
   let turnIndex = -1;
 
@@ -127,6 +128,19 @@ export function buildEventModel(records: TranscriptRecord[]): EventModel {
     if (record.type === "assistant") {
       const resolvedTurnIndex = turnIndex < 0 ? 0 : turnIndex;
       const message = record.message;
+      const usage = message?.usage;
+
+      // One API request is written as several records — one per content
+      // block — and every one of them repeats the same `usage`. The first
+      // record that actually carries usage owns it; the rest are flagged so
+      // token/context sums count each request once (D-follow-up). A record
+      // with no requestId (older CC versions) is always its own request.
+      const requestId = record.requestId;
+      const isUsageDuplicate =
+        usage !== undefined && requestId !== undefined && requestIdsWithCountedUsage.has(requestId);
+      if (usage !== undefined && requestId !== undefined && !isUsageDuplicate) {
+        requestIdsWithCountedUsage.add(requestId);
+      }
 
       events.push({
         type: "assistant",
@@ -135,7 +149,9 @@ export function buildEventModel(records: TranscriptRecord[]): EventModel {
         turnIndex: resolvedTurnIndex,
         model: message?.model,
         stopReason: message?.stop_reason ?? null,
-        usage: message?.usage,
+        usage,
+        requestId,
+        isUsageDuplicate,
       });
 
       const content = message?.content;

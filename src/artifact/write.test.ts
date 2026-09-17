@@ -41,6 +41,7 @@ function minimalProfile(sessionId: string): Profile {
     tokens: { byModel: {}, totals: { input: 0, output: 0, thinking: 0, cacheRead: 0, cacheCreate1h: 0, cacheCreate5m: 0 } },
     cost: null,
     context: { turns: [] },
+    prompts: [],
     diagnostics: { skippedLines: 0, unknownRecordTypes: {}, unmatchedToolUses: 0, versionsSeen: [] },
   };
 }

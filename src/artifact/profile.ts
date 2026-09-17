@@ -3,6 +3,7 @@ import { buildEventModel } from "../model/build-model.js";
 import { computeSubagentStats, type SubagentStat } from "../metrics/subagent-stats.js";
 import { computeContextSeries, type ContextSeries } from "../metrics/context.js";
 import { computeCostStats, type CostStats } from "../metrics/cost.js";
+import { computePrompts, type PromptPoint } from "../metrics/prompts.js";
 import { computeTimeSplit } from "../metrics/time-split.js";
 import { computeTokenStats, type TokenStats } from "../metrics/tokens.js";
 import { computeToolStats } from "../metrics/tool-stats.js";
@@ -45,6 +46,7 @@ export interface Profile {
   tokens: TokenStats;
   cost: CostStats | null;
   context: ContextSeries;
+  prompts: PromptPoint[];
   diagnostics: ProfileDiagnostics;
 }
 
@@ -99,7 +101,8 @@ function buildSessionMeta(
       turnCount++;
       messageCount++;
     } else if (event.type === "assistant") {
-      messageCount++;
+      // One reply, not one record per content block (build-model.ts).
+      if (!event.isUsageDuplicate) messageCount++;
       if (event.model) models.add(event.model);
     }
   }
@@ -188,6 +191,7 @@ export async function buildProfile(options: BuildProfileOptions): Promise<Profil
   const tokens = computeTokenStats(events);
   const cost = computeCostStats(records);
   const context = computeContextSeries(events);
+  const prompts = computePrompts(events);
   const session = buildSessionMeta(sessionId, transcriptPath, records, events);
 
   const profile: Profile = {
@@ -201,6 +205,7 @@ export async function buildProfile(options: BuildProfileOptions): Promise<Profil
     tokens,
     cost,
     context,
+    prompts,
     diagnostics: {
       skippedLines: parsed.diagnostics.skippedLines,
       unknownRecordTypes: parsed.diagnostics.unknownRecordTypes,

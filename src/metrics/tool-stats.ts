@@ -1,4 +1,6 @@
 import type { ToolUseEvent } from "../model/events.js";
+import { computeBashGroups, type BashGroupStat } from "./bash-groups.js";
+import { median, percentile } from "./percentiles.js";
 
 export type ToolKind = "builtin" | "mcp" | "task";
 
@@ -26,6 +28,8 @@ export interface ToolStat {
   unfinishedCount: number;
   pctOfSession: number;
   callRefs: ToolCall[];
+  /** Only populated for `name === "Bash"`: per-command-group breakdown (T-bash-groups). */
+  bashGroups?: BashGroupStat[];
 }
 
 const INPUT_PREVIEW_MAX_CHARS = 200;
@@ -37,22 +41,6 @@ function classifyKind(name: string): { kind: ToolKind; mcpServer: string | undef
     return { kind: "mcp", mcpServer: server };
   }
   return { kind: "builtin", mcpServer: undefined };
-}
-
-function percentile(sorted: number[], p: number): number {
-  if (sorted.length === 0) return 0;
-  if (sorted.length === 1) return sorted[0] as number;
-  const rank = p * (sorted.length - 1);
-  const lower = Math.floor(rank);
-  const upper = Math.ceil(rank);
-  if (lower === upper) return sorted[lower] as number;
-  const lowerValue = sorted[lower] as number;
-  const upperValue = sorted[upper] as number;
-  return lowerValue + (upperValue - lowerValue) * (rank - lower);
-}
-
-function median(sorted: number[]): number {
-  return percentile(sorted, 0.5);
 }
 
 function isOutlier(durationMs: number, medianMs: number): boolean {
@@ -124,6 +112,7 @@ export function computeToolStats(toolUses: ToolUseEvent[], spanMs: number): Tool
       unfinishedCount,
       pctOfSession: spanMs > 0 ? totalMs / spanMs : 0,
       callRefs,
+      ...(name === "Bash" ? { bashGroups: computeBashGroups(events) } : {}),
     });
   }
 

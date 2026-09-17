@@ -16,11 +16,12 @@ export interface TimeSplit {
   toolsIncludeApprovals: true;
   precision: "derived";
   /**
-   * One entry per assistant-turn-end → next-user-prompt gap, in chronological
-   * order (the "You" drill-down: how long each reply took to write). Raw gap
-   * lengths, not adjusted by the tools/model subtraction that keeps the four
-   * headline buckets mutually exclusive — so this can sum to slightly more
-   * than `userMs`, same as any diagnostic breakdown of a derived bucket.
+   * One entry per user prompt that follows a completed assistant turn, in
+   * chronological order (the "You" drill-down: how long each reply took to
+   * write). The session's first prompt has no preceding turn, so it has no
+   * entry. Raw gap lengths, not adjusted by the tools/model subtraction that
+   * keeps the four headline buckets mutually exclusive — so this can sum to
+   * slightly more than `userMs` when a tool was still running into the gap.
    */
   userGaps: UserGap[];
 }
@@ -100,20 +101,28 @@ interface RawUserGap {
   preview: string;
 }
 
+/**
+ * Walks prompts, not assistant turns: each prompt is paired with the single
+ * turn-end that immediately precedes it. Scanning forwards from every
+ * turn-end instead would emit one gap per record of the closing reply — CC
+ * splits a reply into a record per content block, so an end_turn reply
+ * written as thinking + text yields two records and the same pause is
+ * counted twice (D-follow-up).
+ */
 function collectRawUserGaps(events: ModelEvent[]): RawUserGap[] {
   const gaps: RawUserGap[] = [];
   for (let i = 0; i < events.length; i++) {
     const event = events[i];
-    if (!event || event.type !== "assistant" || event.stopReason === "tool_use") continue;
-    const turnEndMs = parseMs(event.at);
-    if (turnEndMs === null) continue;
+    if (!event || event.type !== "user_prompt") continue;
+    const promptMs = parseMs(event.at);
+    if (promptMs === null) continue;
 
-    for (let j = i + 1; j < events.length; j++) {
-      const next = events[j];
-      if (!next || next.type !== "user_prompt") continue;
-      const promptMs = parseMs(next.at);
-      if (promptMs !== null) {
-        gaps.push({ startMs: turnEndMs, endMs: promptMs, preview: next.preview });
+    for (let j = i - 1; j >= 0; j--) {
+      const previous = events[j];
+      if (!previous || previous.type !== "assistant" || previous.stopReason === "tool_use") continue;
+      const turnEndMs = parseMs(previous.at);
+      if (turnEndMs !== null) {
+        gaps.push({ startMs: turnEndMs, endMs: promptMs, preview: event.preview });
       }
       break;
     }

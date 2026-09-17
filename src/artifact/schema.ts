@@ -19,6 +19,7 @@ export const PROFILE_JSON_SCHEMA = {
     "tokens",
     "cost",
     "context",
+    "prompts",
     "diagnostics",
   ],
   properties: {
@@ -39,6 +40,7 @@ export const PROFILE_JSON_SCHEMA = {
     tokens: { $ref: "#/$defs/tokenStats" },
     cost: { oneOf: [{ $ref: "#/$defs/costStats" }, { type: "null" }] },
     context: { $ref: "#/$defs/contextSeries" },
+    prompts: { type: "array", items: { $ref: "#/$defs/promptPoint" } },
     diagnostics: {
       type: "object",
       required: ["skippedLines", "unknownRecordTypes", "unmatchedToolUses", "versionsSeen"],
@@ -160,6 +162,20 @@ export const PROFILE_JSON_SCHEMA = {
         callRefs: { type: "array", items: { $ref: "#/$defs/toolCall" } },
         exactMs: { type: ["number", "null"] },
         approvalMs: { type: ["number", "null"] },
+        bashGroups: { type: "array", items: { $ref: "#/$defs/bashGroupStat" } },
+      },
+    },
+    bashGroupStat: {
+      type: "object",
+      required: ["group", "calls", "totalMs", "medianMs", "maxMs", "unfinishedCount", "pctOfBash"],
+      properties: {
+        group: { type: "string" },
+        calls: { type: "integer", minimum: 0 },
+        totalMs: { type: "number", minimum: 0 },
+        medianMs: { type: "number", minimum: 0 },
+        maxMs: { type: "number", minimum: 0 },
+        unfinishedCount: { type: "integer", minimum: 0 },
+        pctOfBash: { type: "number", minimum: 0 },
       },
     },
     subagentStat: {
@@ -216,6 +232,15 @@ export const PROFILE_JSON_SCHEMA = {
         totalDurationMs: { type: "number", minimum: 0 },
         linesAdded: { type: "number", minimum: 0 },
         linesRemoved: { type: "number", minimum: 0 },
+      },
+    },
+    promptPoint: {
+      type: "object",
+      required: ["turnIndex", "at", "preview"],
+      properties: {
+        turnIndex: { type: "integer", minimum: 0 },
+        at: { type: ["string", "null"] },
+        preview: { type: "string" },
       },
     },
     contextSeries: {

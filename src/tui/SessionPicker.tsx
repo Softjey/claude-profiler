@@ -11,6 +11,7 @@ export interface SessionListing {
   date: Date;
   sizeBytes: number;
   turnCount: number;
+  durationMs: number | undefined;
   title: string | undefined;
 }
 
@@ -31,11 +32,22 @@ function formatDate(date: Date): string {
   return date.toISOString().slice(0, 19).replace("T", " ");
 }
 
+function formatDuration(ms: number | undefined): string {
+  if (ms === undefined || ms < 0) {
+    return "—";
+  }
+  const totalMinutes = Math.round(ms / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours > 0 ? `${hours}h${String(minutes).padStart(2, "0")}m` : `${minutes}m`;
+}
+
 const PATH_WIDTH = 38;
 const TITLE_WIDTH = 32;
 const DATE_WIDTH = 19;
 const SIZE_WIDTH = 6;
 const TURNS_WIDTH = 5;
+const DURATION_WIDTH = 7;
 
 interface Column {
   header: string;
@@ -53,6 +65,7 @@ const COLUMNS: Column[] = [
   { header: "Last active", width: DATE_WIDTH, value: (c) => formatDate(c.date) },
   { header: "Size", width: SIZE_WIDTH, value: (c) => formatSize(c.sizeBytes) },
   { header: "Turns", width: TURNS_WIDTH, value: (c) => String(c.turnCount) },
+  { header: "Duration", width: DURATION_WIDTH, value: (c) => formatDuration(c.durationMs) },
 ];
 
 function Row({

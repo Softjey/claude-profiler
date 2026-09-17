@@ -36,14 +36,16 @@ function isAssistantEvent(event: ModelEvent): event is AssistantEvent {
 /**
  * Sums message.usage per model (FR15). Every usage field is optional across
  * the 14 CC versions in the wild, so a missing field defaults to 0 rather
- * than being dropped from the total.
+ * than being dropped from the total. Records repeating a request's usage
+ * (`isUsageDuplicate`, build-model.ts) are skipped, so a reply split over a
+ * thinking + text + tool_use record is billed once, not three times.
  */
 export function computeTokenStats(events: ModelEvent[]): TokenStats {
   const byModel: Record<string, TokenBucket> = {};
   const totals = emptyBucket();
 
   for (const event of events) {
-    if (!isAssistantEvent(event) || !event.usage) continue;
+    if (!isAssistantEvent(event) || !event.usage || event.isUsageDuplicate) continue;
 
     const model = event.model ?? UNKNOWN_MODEL;
     const usage = event.usage;

@@ -6,6 +6,7 @@ function assistantEvent(
   turnIndex: number,
   at: string,
   usage: AssistantEvent["usage"],
+  isUsageDuplicate = false,
 ): AssistantEvent {
   return {
     type: "assistant",
@@ -15,6 +16,8 @@ function assistantEvent(
     model: "claude-sonnet-5",
     stopReason: "end_turn",
     usage,
+    requestId: `req${turnIndex}`,
+    isUsageDuplicate,
   };
 }
 
@@ -58,5 +61,19 @@ describe("computeContextSeries", () => {
     const events: ModelEvent[] = [assistantEvent(0, "2026-01-01T00:00:00.000Z", undefined)];
 
     expect(computeContextSeries(events).turns).toEqual([]);
+  });
+
+  it("emits one point per request, not per record repeating its usage", () => {
+    const usage = { cache_read_input_tokens: 100, output_tokens: 20 };
+    const events: ModelEvent[] = [
+      assistantEvent(0, "2026-01-01T00:00:00.000Z", usage),
+      assistantEvent(0, "2026-01-01T00:00:01.000Z", usage, true),
+      assistantEvent(0, "2026-01-01T00:00:02.000Z", usage, true),
+    ];
+
+    const series = computeContextSeries(events);
+
+    expect(series.turns).toHaveLength(1);
+    expect(series.turns[0]?.at).toBe("2026-01-01T00:00:00.000Z");
   });
 });

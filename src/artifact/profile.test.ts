@@ -132,6 +132,47 @@ describe("buildProfile", () => {
     }
   });
 
+  it("counts one reply, one token charge and one context point per API request", async () => {
+    const usage = { input_tokens: 10, output_tokens: 50, cache_read_input_tokens: 1000 };
+    // one reply, written as three records that each repeat the same usage
+    const records = [
+      {
+        type: "user",
+        uuid: "u1",
+        timestamp: iso(0),
+        cwd: "/Users/softjey/project",
+        message: { role: "user", content: "do the thing" },
+      },
+      ...["a1", "a2", "a3"].map((uuid, i) => ({
+        type: "assistant",
+        uuid,
+        timestamp: iso(1000 + i * 100),
+        requestId: "req_1",
+        message: {
+          role: "assistant",
+          model: "claude-sonnet-5",
+          stop_reason: "end_turn",
+          usage,
+          content: [{ type: "text", text: uuid }],
+        },
+      })),
+    ];
+    const splitPath = join(dir, "split.jsonl");
+    await writeFile(splitPath, records.map(line).join(""));
+
+    const profile = await buildProfile({
+      sessionId,
+      transcriptPath: splitPath,
+      generatorVersion: "0.1.0",
+      profilerDir: dir,
+    });
+
+    expect(profile.session.messageCount).toBe(2); // 1 prompt + 1 reply, not 1 + 3
+    expect(profile.tokens.totals.output).toBe(50);
+    expect(profile.tokens.totals.cacheRead).toBe(1000);
+    expect(profile.context.turns).toHaveLength(1);
+  });
+
   it("marks isSidechain true when profiling an agent-*.jsonl transcript directly", async () => {
     const agentPath = join(dir, "agent-deadbeef.jsonl");
     await writeFile(

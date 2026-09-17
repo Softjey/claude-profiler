@@ -1,9 +1,12 @@
 import { Box, Text, useInput } from "ink";
 import type { Profile } from "../artifact/profile.js";
+import type { ExactToolStat } from "../hooks/sidecar.js";
 import type { ToolCall } from "../metrics/tool-stats.js";
 import type { ContextPoint } from "../metrics/context.js";
 import { registerTab, type NavScreen, type ScreenProps } from "./shell.js";
 import { formatCount, formatDateTime, formatMs, truncate } from "./format.js";
+import { callDetailScreen } from "./CallDetail.js";
+import { promptPointDetailScreen } from "./PromptPointDetail.js";
 
 const VISIBLE_ROWS = 15;
 
@@ -12,6 +15,7 @@ interface TurnRow {
   startMs: number | null;
   toolsMs: number;
   calls: ToolCall[];
+  trigger: string | null;
 }
 
 function parseMs(at: string | null): number | null {
@@ -35,12 +39,20 @@ function buildTurnRows(profile: Profile): TurnRow[] {
     startMs: null,
     toolsMs: 0,
     calls: [],
+    trigger: null,
   }));
 
   const noteStart = (row: TurnRow, ms: number | null) => {
     if (ms === null) return;
     if (row.startMs === null || ms < row.startMs) row.startMs = ms;
   };
+
+  for (const prompt of profile.prompts) {
+    const row = rows[prompt.turnIndex];
+    if (!row) continue;
+    row.trigger = prompt.preview;
+    noteStart(row, parseMs(prompt.at));
+  }
 
   for (const tool of profile.tools) {
     for (const call of tool.callRefs) {
@@ -78,10 +90,8 @@ function turnSpanMs(rows: TurnRow[], i: number, sessionEndMs: number | null): nu
   return sessionEndMs !== null ? Math.max(0, sessionEndMs - row.startMs) : null;
 }
 
-function activityPreview(row: TurnRow): string {
-  if (row.calls.length === 0) return "(no tool calls)";
-  const names = [...new Set(row.calls.map((c) => c.name))];
-  return names.join(", ");
+function triggerPreview(row: TurnRow): string {
+  return row.trigger ?? "(no prompt captured)";
 }
 
 export function TimelineScreen({ profile, nav }: ScreenProps): React.JSX.Element {
@@ -126,8 +136,8 @@ export function TimelineScreen({ profile, nav }: ScreenProps): React.JSX.Element
         <Box width={12}>
           <Text bold>Tools time</Text>
         </Box>
-        <Box width={30}>
-          <Text bold>Activity</Text>
+        <Box width={38}>
+          <Text bold>Trigger</Text>
         </Box>
       </Box>
       {rows.length === 0 ? (
@@ -154,8 +164,8 @@ export function TimelineScreen({ profile, nav }: ScreenProps): React.JSX.Element
               <Box width={12}>
                 <Text color={color}>{row.toolsMs > 0 ? formatMs(row.toolsMs) : "—"}</Text>
               </Box>
-              <Box width={30}>
-                <Text color={color}>{truncate(activityPreview(row), 29)}</Text>
+              <Box width={38}>
+                <Text color={color}>{truncate(triggerPreview(row), 37)}</Text>
               </Box>
             </Box>
           );
@@ -168,74 +178,94 @@ export function TimelineScreen({ profile, nav }: ScreenProps): React.JSX.Element
   );
 }
 
-/** `⏎` on a Timeline row (plan T15 step 1): every tool call and assistant-message token point in that turn, in time order — the closest honest substitute for "the turn's events" the artifact can produce (no raw event log is retained). */
+interface TurnEvent {
+  key: string;
+  atMs: number | null;
+  render: (selected: boolean) => React.JSX.Element;
+  open: (nav: ScreenProps["nav"]) => void;
+}
+
+function callTurnEvent(call: ToolCall, tool: ExactToolStat): TurnEvent {
+  return {
+    key: call.id,
+    atMs: parseMs(call.startedAt),
+    render: (selected) => (
+      <Text {...(selected ? { color: "cyan" as const } : {})}>
+        {selected ? "> " : "  "}
+        {formatDateTime(call.startedAt)} · {tool.name} ·{" "}
+        {call.durationMs === null ? "unfinished" : formatMs(call.durationMs)}
+        {call.isOutlier ? " (outlier)" : ""}
+      </Text>
+    ),
+    open: (nav) => nav.push(callDetailScreen(call, tool)),
+  };
+}
+
+function assistantTurnEvent(point: ContextPoint, key: string): TurnEvent {
+  return {
+    key,
+    atMs: parseMs(point.at),
+    render: (selected) => (
+      <Text {...(selected ? { color: "cyan" as const } : {})}>
+        {selected ? "> " : "  "}
+        {formatDateTime(point.at)} · assistant message · cache read {formatCount(point.cacheReadTokens)} · output{" "}
+        {formatCount(point.outputTokens)} · thinking {formatCount(point.thinkingTokens)}
+      </Text>
+    ),
+    open: (nav) => nav.push(promptPointDetailScreen(point)),
+  };
+}
+
+/** `⏎` on a Timeline row (plan T15 step 1): every tool call and assistant-message token point in that turn, merged into one time-ordered, scrollable list — the closest honest substitute for "the turn's events" the artifact can produce (no raw event log is retained). Each row drills further in on `⏎`. */
 function TurnDetailScreen({ profile, turnIndex, nav }: ScreenProps & { turnIndex: number }): React.JSX.Element {
   // nav.selection, not local useState: see Overview.tsx's comment on the same pattern.
   const selectedIndex = nav.selection;
-  const calls = profile.tools
-    .flatMap((tool) => tool.callRefs.filter((c) => c.turnIndex === turnIndex).map((c) => ({ ...c, toolName: tool.name })))
-    .sort((a, b) => (parseMs(a.startedAt) ?? 0) - (parseMs(b.startedAt) ?? 0));
-  const points = profile.context.turns
+  const trigger = profile.prompts.find((p) => p.turnIndex === turnIndex)?.preview ?? null;
+
+  const callEvents = profile.tools.flatMap((tool) =>
+    tool.callRefs.filter((c) => c.turnIndex === turnIndex).map((c) => callTurnEvent(c, tool)),
+  );
+  const assistantEvents = profile.context.turns
     .filter((p) => p.turnIndex === turnIndex)
-    .sort((a, b) => (parseMs(a.at) ?? 0) - (parseMs(b.at) ?? 0));
+    .map((p, i) => assistantTurnEvent(p, `assistant-${turnIndex}-${i}`));
+  const events = [...callEvents, ...assistantEvents].sort((a, b) => (a.atMs ?? 0) - (b.atMs ?? 0));
 
   useInput((_input, key) => {
-    if (calls.length === 0) return;
+    if (events.length === 0) return;
     if (key.upArrow) {
-      nav.setSelection((selectedIndex - 1 + calls.length) % calls.length);
+      nav.setSelection((selectedIndex - 1 + events.length) % events.length);
     } else if (key.downArrow) {
-      nav.setSelection((selectedIndex + 1) % calls.length);
+      nav.setSelection((selectedIndex + 1) % events.length);
+    } else if (key.return) {
+      events[selectedIndex]?.open(nav);
     }
   });
 
   // Same windowing as TimelineScreen above: without it a turn with more
-  // calls than fit on screen just prints every row and leaves the
+  // events than fit on screen just prints every row and leaves the
   // highlighted one to the terminal's own scrollback.
   const windowStart = Math.min(
     Math.max(0, selectedIndex - Math.floor(VISIBLE_ROWS / 2)),
-    Math.max(0, calls.length - VISIBLE_ROWS),
+    Math.max(0, events.length - VISIBLE_ROWS),
   );
-  const visibleCalls = calls.slice(windowStart, windowStart + VISIBLE_ROWS);
+  const visibleEvents = events.slice(windowStart, windowStart + VISIBLE_ROWS);
 
   return (
     <Box flexDirection="column">
       <Text bold>Turn {turnIndex}</Text>
+      <Text dimColor wrap="wrap">
+        Triggered by: {trigger ?? "(no prompt captured)"}
+      </Text>
       <Box marginTop={1} flexDirection="column">
-        <Text bold>Tool calls ({calls.length})</Text>
-        {calls.length === 0 ? (
+        <Text bold>Events ({events.length})</Text>
+        {events.length === 0 ? (
           <Text dimColor>None.</Text>
         ) : (
-          visibleCalls.map((call, i) => {
-            const selected = windowStart + i === selectedIndex;
-            return (
-              <Text key={call.id} {...(selected ? { color: "cyan" as const } : {})}>
-                {selected ? "> " : "  "}
-                {formatDateTime(call.startedAt)} · {call.toolName} ·{" "}
-                {call.durationMs === null ? "unfinished" : formatMs(call.durationMs)}
-                {call.isOutlier ? " (outlier)" : ""}
-              </Text>
-            );
-          })
+          visibleEvents.map((event, i) => <Box key={event.key}>{event.render(windowStart + i === selectedIndex)}</Box>)
         )}
-      </Box>
-      <Box marginTop={1} flexDirection="column">
-        <Text bold>Assistant messages ({points.length})</Text>
-        {points.length === 0 ? (
-          <Text dimColor>None.</Text>
-        ) : (
-          points.slice(0, VISIBLE_ROWS).map((point, i) => (
-            <Text key={`${point.turnIndex}-${i}`}>
-              {formatDateTime(point.at)} · cache read {formatCount(point.cacheReadTokens)} · output{" "}
-              {formatCount(point.outputTokens)} · thinking {formatCount(point.thinkingTokens)}
-            </Text>
-          ))
-        )}
-        {points.length > VISIBLE_ROWS ? (
-          <Text dimColor>… {points.length - VISIBLE_ROWS} more not shown</Text>
-        ) : null}
       </Box>
       <Box marginTop={1}>
-        <Text dimColor>{calls.length > 0 ? "↑↓ select · " : ""}Esc back</Text>
+        <Text dimColor>{events.length > 0 ? "↑↓ select · ⏎ drill in · " : ""}Esc back</Text>
       </Box>
     </Box>
   );

@@ -26,6 +26,27 @@ function assistant(
   } as TranscriptRecord;
 }
 
+function assistantWithUsage(
+  uuid: string,
+  timestamp: string,
+  requestId: string | undefined,
+  usage: unknown,
+): TranscriptRecord {
+  return {
+    type: "assistant",
+    uuid,
+    timestamp,
+    requestId,
+    message: {
+      role: "assistant",
+      model: "claude-x",
+      content: [],
+      stop_reason: "end_turn",
+      usage: usage as never,
+    },
+  } as TranscriptRecord;
+}
+
 function toolResult(uuid: string, timestamp: string, toolUseId: string): TranscriptRecord {
   return {
     type: "user",
@@ -94,6 +115,53 @@ describe("buildEventModel", () => {
       expect(turnIndexes[i]).toBeGreaterThanOrEqual(turnIndexes[i - 1] as number);
     }
     expect(turnIndexes[0]).toBe(0);
+  });
+
+  it("flags every record after the first that repeats one request's usage", () => {
+    const usage = { input_tokens: 10, output_tokens: 20 };
+    const records: TranscriptRecord[] = [
+      userPrompt("u1", "2026-01-01T00:00:00.000Z"),
+      assistantWithUsage("a1", "2026-01-01T00:00:01.000Z", "req_1", usage),
+      assistantWithUsage("a2", "2026-01-01T00:00:02.000Z", "req_1", usage),
+      assistantWithUsage("a3", "2026-01-01T00:00:03.000Z", "req_1", usage),
+      assistantWithUsage("a4", "2026-01-01T00:00:04.000Z", "req_2", usage),
+    ];
+
+    const { events } = buildEventModel(records);
+    const assistants = events.filter((e) => e.type === "assistant");
+
+    expect(assistants.map((e) => e.isUsageDuplicate)).toEqual([false, true, true, false]);
+    expect(assistants.map((e) => e.requestId)).toEqual(["req_1", "req_1", "req_1", "req_2"]);
+  });
+
+  it("treats a record with no requestId as its own request", () => {
+    const usage = { input_tokens: 10 };
+    const records: TranscriptRecord[] = [
+      userPrompt("u1", "2026-01-01T00:00:00.000Z"),
+      assistantWithUsage("a1", "2026-01-01T00:00:01.000Z", undefined, usage),
+      assistantWithUsage("a2", "2026-01-01T00:00:02.000Z", undefined, usage),
+    ];
+
+    const { events } = buildEventModel(records);
+
+    expect(
+      events.filter((e) => e.type === "assistant").map((e) => e.isUsageDuplicate),
+    ).toEqual([false, false]);
+  });
+
+  it("lets a later record own the usage when the request's first record has none", () => {
+    const records: TranscriptRecord[] = [
+      userPrompt("u1", "2026-01-01T00:00:00.000Z"),
+      assistantWithUsage("a1", "2026-01-01T00:00:01.000Z", "req_1", undefined),
+      assistantWithUsage("a2", "2026-01-01T00:00:02.000Z", "req_1", { input_tokens: 10 }),
+      assistantWithUsage("a3", "2026-01-01T00:00:03.000Z", "req_1", { input_tokens: 10 }),
+    ];
+
+    const { events } = buildEventModel(records);
+
+    expect(
+      events.filter((e) => e.type === "assistant").map((e) => e.isUsageDuplicate),
+    ).toEqual([false, false, true]);
   });
 
   it("excludes untimed records from timing but keeps them in the event list", () => {

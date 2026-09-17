@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { AssistantEvent, ModelEvent, UserPromptEvent } from "../model/events.js";
 import { computeTokenStats } from "./tokens.js";
 
-function assistantEvent(model: string | undefined, usage: AssistantEvent["usage"]): AssistantEvent {
+function assistantEvent(
+  model: string | undefined,
+  usage: AssistantEvent["usage"],
+  isUsageDuplicate = false,
+): AssistantEvent {
   return {
     type: "assistant",
     uuid: "a1",
@@ -11,6 +15,8 @@ function assistantEvent(model: string | undefined, usage: AssistantEvent["usage"
     model,
     stopReason: "end_turn",
     usage,
+    requestId: "req1",
+    isUsageDuplicate,
   };
 }
 
@@ -75,5 +81,30 @@ describe("computeTokenStats", () => {
 
     expect(stats.byModel).toEqual({});
     expect(stats.totals.input).toBe(0);
+  });
+
+  it("counts a request's usage once when several records repeat it", () => {
+    const usage = {
+      input_tokens: 100,
+      output_tokens: 50,
+      cache_read_input_tokens: 1000,
+      output_tokens_details: { thinking_tokens: 30 },
+    };
+    const events: ModelEvent[] = [
+      assistantEvent("claude-sonnet-5", usage),
+      assistantEvent("claude-sonnet-5", usage, true),
+      assistantEvent("claude-sonnet-5", usage, true),
+    ];
+
+    const stats = computeTokenStats(events);
+
+    expect(stats.totals).toEqual({
+      input: 100,
+      output: 50,
+      thinking: 30,
+      cacheRead: 1000,
+      cacheCreate1h: 0,
+      cacheCreate5m: 0,
+    });
   });
 });

@@ -79,6 +79,7 @@ function makeProfile(overrides: Partial<Profile> = {}): Profile {
     tokens: { byModel: {}, totals: { input: 0, output: 0, thinking: 0, cacheRead: 0, cacheCreate1h: 0, cacheCreate5m: 0 } },
     cost: null,
     context: { turns: [] },
+    prompts: [],
     diagnostics: { skippedLines: 0, unknownRecordTypes: {}, unmatchedToolUses: 0, versionsSeen: [] },
     ...overrides,
   };
@@ -114,18 +115,21 @@ describe("TimelineScreen", () => {
     expect(lastFrame()).toContain("Timeline — 950 turns");
   });
 
-  it("shows the tool count and activity for a turn with calls", () => {
-    const { lastFrame } = renderTimeline(makeProfile());
-    expect(lastFrame()).toContain("Bash");
-  });
-
-  it("labels a turn with no tool calls honestly rather than fabricating data", () => {
-    const profile = makeProfile({ session: { ...makeProfile().session, turnCount: 2 }, tools: [] });
+  it("shows the prompt that triggered a turn", () => {
+    const profile = makeProfile({
+      prompts: [{ turnIndex: 0, at: "2026-01-01T00:00:00.000Z", preview: "do the thing" }],
+    });
     const { lastFrame } = renderTimeline(profile);
-    expect(lastFrame()).toContain("(no tool calls)");
+    expect(lastFrame()).toContain("do the thing");
   });
 
-  it("expands a turn's events on Enter, and Esc returns to the exact previous selection", async () => {
+  it("labels a turn with no captured prompt honestly rather than fabricating data", () => {
+    const profile = makeProfile({ session: { ...makeProfile().session, turnCount: 2 }, tools: [], prompts: [] });
+    const { lastFrame } = renderTimeline(profile);
+    expect(lastFrame()).toContain("(no prompt captured)");
+  });
+
+  it("expands a turn's events into one merged, drillable list on Enter, and Esc returns to the exact previous selection", async () => {
     const profile = makeProfile({
       tools: [
         makeTool({ name: "Read", callRefs: [makeCall({ id: "toolu_0", turnIndex: 0, name: "Read" })] }),
@@ -141,6 +145,7 @@ describe("TimelineScreen", () => {
     await tick();
     expect(lastFrame()).toContain("Turn 1");
     expect(lastFrame()).toContain("Write");
+    expect(lastFrame()).toContain("Events (1)");
 
     stdin.write(""); // Esc back to Timeline
     await tick();
@@ -148,5 +153,18 @@ describe("TimelineScreen", () => {
     await tick();
     // still turn 1, not reset to turn 0
     expect(lastFrame()).toContain("Turn 1");
+  });
+
+  it("drills from a turn's merged event list into the call detail screen on Enter", async () => {
+    const profile = makeProfile({
+      tools: [makeTool({ name: "Read", callRefs: [makeCall({ id: "toolu_0", turnIndex: 0, name: "Read" })] })],
+    });
+    const { lastFrame, stdin } = renderTimeline(profile);
+
+    stdin.write("\r"); // expand turn 0
+    await tick();
+    stdin.write("\r"); // drill into the one event
+    await tick();
+    expect(lastFrame()).toContain("Read · call toolu_0");
   });
 });
