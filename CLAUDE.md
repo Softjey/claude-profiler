@@ -12,7 +12,7 @@ branches cost almost no extra disk or download time. `pnpm install`, `pnpm verif
 # Definition of done
 
 A task from `plan.md` is finished only after `/verify-task <id>` passes and has written
-a PASS block to `progress.md`. Compiling is not passing — every acceptance criterion needs
+a PASS verdict to `progress/<id>.md`. Compiling is not passing — every acceptance criterion needs
 executed evidence. Do not commit a task that failed verification.
 
 Run `pnpm verify` (build + unit tests) before any commit, task or not.

@@ -378,6 +378,51 @@ next one.
 4. **Merge in table order**, verifying after each merge — a green branch can still go red
    against a sibling's merged work.
 
+### Merging a wave
+
+Agents leave their branches behind in the repo; merging is ordinary local git.
+
+```sh
+git worktree list                      # what ran where
+git log --oneline master..<branch>     # what that task actually did
+git diff --stat master...<branch>      # which files it touched
+```
+
+For each branch, **in the wave-table order**, one at a time:
+
+```sh
+git merge --no-ff <branch>             # --no-ff keeps the task boundary readable
+pnpm install                           # only if the lockfile moved
+pnpm verify                            # green branch + green branch can still be red
+```
+
+Then, once the whole wave is in:
+
+```sh
+git worktree remove <path>
+git branch -d <branch>
+```
+
+Rules:
+
+- **Verify after every single merge, not once at the end.** Two branches that each passed
+  alone can still break together — that is exactly what wave-order merging is meant to catch.
+- **Never merge a branch without a PASS in `progress/<id>.md`.** Unverified work does not
+  reach `master`.
+- **A red merge is reverted, not patched in place.** `git merge --abort`, or revert the merge,
+  and send the task back to its worktree. Fixing a sibling's code during a merge destroys
+  the isolation the worktrees bought.
+- **Do not open the next wave until the current one is merged and green.** Wave N+1's tasks
+  are written against merged interfaces.
+
+Expected conflicts, and the answer to each:
+
+| Conflict | Why | Resolution |
+|---|---|---|
+| `progress/<id>.md` | should be impossible — one file per task | a conflict here means a task wrote outside its own file; treat as a process bug |
+| `pnpm-lock.yaml` | two tasks added dependencies | take `master`'s side, then re-run `pnpm install` and commit the regenerated lockfile |
+| Anything in `src/` | two tasks touched the same file | a task widened its **Files** list; the merge is not the place to settle it — reject and re-scope |
+
 ### Sequencing hazards, already mitigated
 
 - **T9 needs a human.** The spike requires a real interactive session where *the user*

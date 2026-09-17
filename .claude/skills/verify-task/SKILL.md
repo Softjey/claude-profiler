@@ -66,7 +66,9 @@ Quick pass over the task's files against **Conventions** in `plan.md`:
 
 ### 6. Record the verdict
 
-Append one block to `progress.md` (create the file with a `# Progress` heading if absent):
+Write **your own file**, `progress/<id>.md` — e.g. `progress/T5.md`. Never append to a
+shared log: sibling tasks run in parallel worktrees, and one file per task is what keeps
+merging a wave conflict-free. Overwrite your file if re-verifying.
 
 ```markdown
 ## <id> — <task title> — PASS | FAIL
@@ -79,12 +81,12 @@ Verified: <YYYY-MM-DD>
 Notes: <deviations from plan.md, things deferred, surprises worth knowing later>
 ```
 
-Record a FAIL block too. A task that failed verification twice is a signal the plan was
-wrong, and that history must survive.
+Record a FAIL verdict too, in the same file. A task that failed verification twice is a
+signal the plan was wrong, and that history must survive.
 
 ### 7. Report
 
 - **PASS** → say so, then commit (Conventional Commits, English), scoped to this task alone.
-- **FAIL** → do **not** commit. Name the failing criterion and the fix you propose, then stop
+- **FAIL** → do **not** commit and do **not** merge the branch. Name the failing criterion and the fix you propose, then stop
   and wait. Do not silently rewrite the acceptance criterion to match the code you wrote:
   if you believe the criterion itself is wrong, say that explicitly and let the user decide.
