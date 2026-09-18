@@ -104,18 +104,29 @@ Task          4       9m 12s      1m 58s    1
 recorded time went.
 
 ```
-measured · 183 requests, 250.6k context read back per request on average
+measured · 183 requests
+
+Context read back · 45.9M over the session, 250.6k per request
+  Cache read    ███████████████████░ 96.2% 44.1M tokens
+  Cache write   █░░░░░░░░░░░░░░░░░░░  3.8% 1.7M tokens
+  Fresh input   ░░░░░░░░░░░░░░░░░░░░  0.0% 366 tokens
+
+Output · 207.4k written
 > Thinking      ████░░░░░░░░░░░░░░░░ 18.2% 37.7k tokens
-  Text + tools  ████████████████░░░░ 81.8% 169.8k tokens
+  Generating    ████████████████░░░░ 81.8% 169.8k tokens
 ```
 
-Both numbers come straight from each request's `usage` — `thinking_tokens` is reported, not
+Every number comes straight from each request's `usage` — `thinking_tokens` is reported, not
 inferred — so this is the same table for every session, with no fit, no sample floor and no
 confidence caveat.
 
-Only output is split. On a real session input outweighs it by two orders of magnitude
-(44.1M cache-read tokens against 207.4k of output), so a bar carrying both is a bar of cache
-reads with the answer invisible inside it. Context size is a number in the note instead.
+Input and output get a bar each rather than sharing one, because they are not the same
+quantity. Input counts the same context re-read on every request: 183 requests against 250.6k
+of context is 45.9M "tokens" for a conversation holding a few hundred thousand. Output counts
+what was written, once. Share a scale between them and output is 0.45% of the total with
+thinking invisible inside it — which is the thing the screen exists to show. A context row a
+session never had, like cache writes on a session that made none, is left out rather than
+drawn at 0.0%.
 
 Time is not in this table at all. Tokens cannot speak to the part of a session that was
 spent waiting — a slept laptop produces none — and the headline bar already answers that,

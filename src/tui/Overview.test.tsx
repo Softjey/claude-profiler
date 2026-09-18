@@ -132,8 +132,8 @@ describe("OverviewScreen", () => {
     const { lastFrame } = renderOverview(makeProfile());
     const frame = lastFrame() ?? "";
     expect(frame).toContain("Thinking");
-    expect(frame).toContain("Text + tools");
-    expect(frame).toContain("context read back per request");
+    expect(frame).toContain("Generating");
+    expect(frame).toContain("Context read back");
   });
 
   it("opens the request list from any stage row on Enter", async () => {
@@ -322,6 +322,6 @@ describe("OverviewScreen", () => {
     await tick();
     const frame = lastFrame() ?? "";
     expect(frame).toContain("Thinking");
-    expect(frame).toContain("Text + tools");
+    expect(frame).toContain("Generating");
   });
 });

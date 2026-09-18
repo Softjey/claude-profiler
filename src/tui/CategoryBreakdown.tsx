@@ -18,36 +18,86 @@ function bar(fraction: number, color: string): React.JSX.Element {
   );
 }
 
-type OutputKind = "thinking" | "rest";
+type TokenKind = "cacheRead" | "cacheWrite" | "freshInput" | "thinking" | "generating";
 
-const OUTPUT_LABELS: Record<OutputKind, string> = {
+const TOKEN_LABELS: Record<TokenKind, string> = {
+  cacheRead: "Cache read",
+  cacheWrite: "Cache write",
+  freshInput: "Fresh input",
   thinking: "Thinking",
-  rest: "Text + tools",
+  generating: "Generating",
 };
 
-const OUTPUT_COLORS: Record<OutputKind, string> = {
+const TOKEN_COLORS: Record<TokenKind, string> = {
+  cacheRead: "blue",
+  cacheWrite: "yellow",
+  freshInput: "green",
   thinking: "magenta",
-  rest: "cyan",
+  generating: "cyan",
 };
 
-const OUTPUT_LABEL_WIDTH = 16;
+const TOKEN_LABEL_WIDTH = 16;
+
+interface TokenRow {
+  kind: TokenKind;
+  count: number;
+}
+
+function TokenRows({
+  rows,
+  total,
+  offset,
+  selectedIndex,
+  active,
+}: {
+  rows: TokenRow[];
+  total: number;
+  /** Where these rows start in the table's own numbering, for the cursor. */
+  offset: number;
+  selectedIndex: number;
+  active: boolean;
+}): React.JSX.Element {
+  return (
+    <>
+      {rows.map((row, i) => {
+        const selected = active && offset + i === selectedIndex;
+        return (
+          <Box key={row.kind}>
+            <Box width={TOKEN_LABEL_WIDTH} flexShrink={0}>
+              <Text bold={selected} wrap="truncate-end">
+                {selected ? ">" : " "} {TOKEN_LABELS[row.kind]}
+              </Text>
+            </Box>
+            {bar(total > 0 ? row.count / total : 0, TOKEN_COLORS[row.kind])}
+            <Text>
+              {" "}
+              {formatPercent(total > 0 ? row.count / total : 0)} {formatCount(row.count)} tokens
+            </Text>
+          </Box>
+        );
+      })}
+    </>
+  );
+}
 
 /**
- * What the model produced, in tokens it actually reported.
+ * What the model read and what it produced, in tokens it actually reported.
  *
- * This replaces a fitted time split that priced thinking at a rate regressed
- * from the session. `thinking_tokens` is already in every request's `usage`,
- * so the same question — how much of this was thinking — is answered by
- * arithmetic on measured numbers instead: no fit, no sample floor, no
+ * This replaces a time split that priced thinking at a generation rate
+ * regressed from the session. `thinking_tokens` is already in every request's
+ * `usage`, so the same question — how much of this was thinking — is answered
+ * by arithmetic on measured numbers instead: no fit, no sample floor, no
  * stability caveat, and the same table for every session.
  *
- * Only output is split. Input dwarfs it by two orders of magnitude on a real
- * session — 44.1M cache-read tokens against 207.4k of output — so a bar
- * carrying both is a bar of cache reads with the answer invisible inside it.
- * Context size is a number in the note instead, where it can be read without
- * crowding out the thing being shown. Time is not here at all: it is the
- * headline bar's job, and tokens cannot speak to the part of it that was
- * spent waiting.
+ * Input and output get a bar each rather than sharing one, because they are
+ * not the same quantity. Input counts the same context re-read on every
+ * request — 1022 requests against 467.5k of context is 478M "tokens" of a
+ * conversation holding a few hundred thousand — while output counts what was
+ * written, once. On one scale output is 0.45% of the total and thinking is
+ * invisible inside it, which is the answer this screen exists to show.
+ *
+ * Time is not here at all: it is the headline bar's job, and tokens cannot
+ * speak to the part of a session that was spent waiting.
  */
 function TokenSplit({
   tokens,
@@ -62,43 +112,77 @@ function TokenSplit({
 }): React.JSX.Element {
   const { output, thinking, input, cacheRead, cacheCreate1h, cacheCreate5m } = tokens.totals;
 
-  if (output === 0) {
+  if (output === 0 && cacheRead === 0 && input === 0) {
     return <Text dimColor>No token usage recorded in this session.</Text>;
   }
 
-  const contextRead = input + cacheRead + cacheCreate1h + cacheCreate5m;
-  const rows: { kind: OutputKind; count: number }[] = [
+  const contextRows = inputRows(tokens);
+  const contextTotal = contextRows.reduce((sum, row) => sum + row.count, 0);
+  const outputRows: TokenRow[] = [
     { kind: "thinking", count: Math.min(thinking, output) },
-    { kind: "rest", count: Math.max(0, output - thinking) },
+    { kind: "generating", count: Math.max(0, output - thinking) },
   ];
 
   return (
     <Box flexDirection="column">
       <Text dimColor>
         measured · {requests} request{requests === 1 ? "" : "s"}
-        {requests > 0
-          ? `, ${formatCount(Math.round(contextRead / requests))} context read back per request on average`
-          : ""}
       </Text>
-      {rows.map((row, i) => {
-        const selected = active && i === selectedIndex;
-        return (
-          <Box key={row.kind}>
-            <Box width={OUTPUT_LABEL_WIDTH} flexShrink={0}>
-              <Text bold={selected} wrap="truncate-end">
-                {selected ? ">" : " "} {OUTPUT_LABELS[row.kind]}
-              </Text>
-            </Box>
-            {bar(row.count / output, OUTPUT_COLORS[row.kind])}
-            <Text>
-              {" "}
-              {formatPercent(row.count / output)} {formatCount(row.count)} tokens
+      {contextRows.length > 0 ? (
+        <Box flexDirection="column" marginTop={1}>
+          <Text>
+            Context read back{" "}
+            <Text dimColor>
+              · {formatCount(contextTotal)} over the session
+              {requests > 0 ? `, ${formatCount(Math.round(contextTotal / requests))} per request` : ""}
             </Text>
-          </Box>
-        );
-      })}
+          </Text>
+          <TokenRows
+            rows={contextRows}
+            total={contextTotal}
+            offset={0}
+            selectedIndex={selectedIndex}
+            active={active}
+          />
+        </Box>
+      ) : null}
+      <Box flexDirection="column" marginTop={1}>
+        <Text>
+          Output <Text dimColor>· {formatCount(output)} written</Text>
+        </Text>
+        <TokenRows
+          rows={outputRows}
+          total={output}
+          offset={contextRows.length}
+          selectedIndex={selectedIndex}
+          active={active}
+        />
+      </Box>
     </Box>
   );
+}
+
+/**
+ * The context rows a session actually has. A kind that never occurred is left
+ * out rather than shown at 0.0%: fresh input is a rounding error next to cache
+ * reads on every real session, and a permanent empty row teaches the reader to
+ * skip the block it sits in.
+ */
+function inputRows(tokens: TokenStats): TokenRow[] {
+  const { input, cacheRead, cacheCreate1h, cacheCreate5m } = tokens.totals;
+  const candidates: TokenRow[] = [
+    { kind: "cacheRead", count: cacheRead },
+    { kind: "cacheWrite", count: cacheCreate1h + cacheCreate5m },
+    { kind: "freshInput", count: input },
+  ];
+  return candidates.filter((row) => row.count > 0);
+}
+
+/** How many rows the Model table draws, so the cursor can count the same ones. */
+export function modelTokenRowCount(tokens: TokenStats): number {
+  const { output, cacheRead, input } = tokens.totals;
+  if (output === 0 && cacheRead === 0 && input === 0) return 0;
+  return inputRows(tokens).length + 2;
 }
 
 export interface ModelBreakdownTableProps {

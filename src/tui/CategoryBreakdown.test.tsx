@@ -57,39 +57,67 @@ function makeTimeline(overrides: Partial<MergedTimeSplit> = {}): MergedTimeSplit
 }
 
 describe("ModelBreakdownTable", () => {
-  it("marks the selected row in the token split, which is where the cursor lives", () => {
-    const { lastFrame } = render(
-      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), tokens: makeTokens(), selectedIndex: 1, active: true }),
-    );
-    const lines = (lastFrame() ?? "").split("\n");
-    expect(lines.find((l) => l.includes("Text + tools"))).toContain(">");
-    expect(lines.find((l) => l.includes("Thinking"))).not.toContain(">");
+  it("numbers the cursor across both blocks, not just the output one", () => {
+    // makeTokens has cache reads and fresh input but no cache writes, so the
+    // rows are: Cache read, Fresh input, Thinking, Generating.
+    const lines = (index: number) => {
+      const { lastFrame } = render(
+        createElement(ModelBreakdownTable, {
+          breakdown: makeBreakdown(),
+          tokens: makeTokens(),
+          selectedIndex: index,
+          active: true,
+        }),
+      );
+      return (lastFrame() ?? "").split("\n");
+    };
+    expect(lines(0).find((l) => l.includes("Cache read"))).toContain(">");
+    expect(lines(2).find((l) => l.includes("Thinking"))).toContain(">");
+    expect(lines(3).find((l) => l.includes("Generating"))).toContain(">");
+    expect(lines(3).find((l) => l.includes("Cache read"))).not.toContain(">");
   });
 
-  it("splits output into thinking and everything else, from the reported tokens", () => {
+  it("leaves out a context row the session never had, rather than showing it at zero", () => {
+    const { lastFrame } = render(
+      createElement(ModelBreakdownTable, {
+        breakdown: makeBreakdown(),
+        tokens: makeTokens({ cacheCreate1h: 0, cacheCreate5m: 0 }),
+        selectedIndex: 0,
+        active: true,
+      }),
+    );
+    expect(lastFrame() ?? "").not.toContain("Cache write");
+  });
+
+  it("splits output into thinking and generating, from the reported tokens", () => {
     const { lastFrame } = render(
       createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), tokens: makeTokens(), selectedIndex: 0, active: true }),
     );
     const frame = lastFrame() ?? "";
     // 2k thinking of 10k output, and no fitted rate anywhere in sight.
     expect(frame).toMatch(/Thinking\s+\S*\s*20\.0% 2\.0k tokens/);
-    expect(frame).toMatch(/Text \+ tools\s+\S*\s*80\.0% 8\.0k tokens/);
+    expect(frame).toMatch(/Generating\s+\S*\s*80\.0% 8\.0k tokens/);
     expect(frame).not.toContain("estimated");
   });
 
-  it("reports the context read back per request rather than charting it", () => {
-    // Input outweighs output ~100x, so it belongs in the note, not on a bar.
+  it("gives input its own bar rather than sharing output's, and says the per-request size", () => {
+    // Input outweighs output ~100x: on one scale the answer is invisible.
     const { lastFrame } = render(
       createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), tokens: makeTokens(), selectedIndex: 0, active: true }),
     );
-    expect(lastFrame() ?? "").toContain("context read back per request");
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("Context read back");
+    expect(frame).toContain("per request");
+    // Each block is normalised in itself, so cache read reads near 100% of
+    // input rather than near 100% of everything.
+    expect(frame).toMatch(/Cache read\s+\S*\s*100\.0%/);
   });
 
-  it("says so plainly when the session reported no output tokens", () => {
+  it("says so plainly when the session reported no tokens at all", () => {
     const { lastFrame } = render(
       createElement(ModelBreakdownTable, {
         breakdown: makeBreakdown(),
-        tokens: makeTokens({ output: 0, thinking: 0 }),
+        tokens: makeTokens({ output: 0, thinking: 0, input: 0, cacheRead: 0 }),
         selectedIndex: 0,
         active: true,
       }),

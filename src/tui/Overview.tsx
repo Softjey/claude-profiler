@@ -3,7 +3,12 @@ import { useState } from "react";
 import type { ScreenProps } from "./shell.js";
 import { registerTab } from "./shell.js";
 import { CATEGORY_KEYS, TimeSplitBar, type Category } from "./TimeSplitBar.js";
-import { ModelBreakdownTable, UnaccountedBreakdown, UserPromptList } from "./CategoryBreakdown.js";
+import {
+  ModelBreakdownTable,
+  UnaccountedBreakdown,
+  UserPromptList,
+  modelTokenRowCount,
+} from "./CategoryBreakdown.js";
 import { modelRequestsScreen } from "./ModelRequests.js";
 import { ToolTable, SORT_KEYS, sortTools, type SortKey } from "./ToolTable.js";
 import { toolDetailScreen } from "./ToolDetail.js";
@@ -11,9 +16,6 @@ import { promptDetailScreen } from "./PromptDetail.js";
 
 
 type Focus = "categories" | "detail";
-
-/** Thinking and everything else: the two rows of the Model tab's token split. */
-const OUTPUT_ROW_COUNT = 2;
 
 /**
  * The default screen (F2, D10, D11): the time split, the tool table, and the
@@ -75,11 +77,10 @@ export function OverviewScreen({ profile, nav }: ScreenProps): React.JSX.Element
       } else if (category === "tools") {
         nav.setSelection(rows.length === 0 ? 0 : (selectedIndex + delta + rows.length) % rows.length);
       } else if (category === "model") {
-        // The cursor lives in the token split, which is the table this screen
-        // leads with: thinking and everything else. The measured grid below it
-        // is a record, not a menu — every one of its rows opens the same
-        // request list anyway.
-        const rowCount = profile.tokens.totals.output > 0 ? OUTPUT_ROW_COUNT : 0;
+        // The cursor walks both blocks of the token split, whose row count
+        // varies: a session that never wrote a cache entry has no Cache write
+        // row for it to stop on.
+        const rowCount = modelTokenRowCount(profile.tokens);
         setModelSelection((s) => (rowCount === 0 ? 0 : (s + delta + rowCount) % rowCount));
       } else if (category === "you") {
         const gapCount = profile.timeline.userGaps.length;
