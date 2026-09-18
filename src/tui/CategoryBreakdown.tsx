@@ -128,6 +128,21 @@ function TokenSplit({
       <Text dimColor>
         measured · {requests} request{requests === 1 ? "" : "s"}
       </Text>
+      {/* Output leads. It is the smaller number by two orders of magnitude and
+          the one the screen is for; context is what that output cost to get,
+          and reads as the footnote it is. */}
+      <Box flexDirection="column" marginTop={1}>
+        <Text>
+          Output <Text dimColor>· {formatCount(output)} written</Text>
+        </Text>
+        <TokenRows
+          rows={outputRows}
+          total={output}
+          offset={0}
+          selectedIndex={selectedIndex}
+          active={active}
+        />
+      </Box>
       {contextRows.length > 0 ? (
         <Box flexDirection="column" marginTop={1}>
           <Text>
@@ -140,24 +155,12 @@ function TokenSplit({
           <TokenRows
             rows={contextRows}
             total={contextTotal}
-            offset={0}
+            offset={outputRows.length}
             selectedIndex={selectedIndex}
             active={active}
           />
         </Box>
       ) : null}
-      <Box flexDirection="column" marginTop={1}>
-        <Text>
-          Output <Text dimColor>· {formatCount(output)} written</Text>
-        </Text>
-        <TokenRows
-          rows={outputRows}
-          total={output}
-          offset={contextRows.length}
-          selectedIndex={selectedIndex}
-          active={active}
-        />
-      </Box>
     </Box>
   );
 }

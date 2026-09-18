@@ -106,22 +106,23 @@ recorded time went.
 ```
 measured · 183 requests
 
+Output · 207.4k written
+> Thinking      ████░░░░░░░░░░░░░░░░ 18.2% 37.7k tokens
+  Generating    ████████████████░░░░ 81.8% 169.8k tokens
+
 Context read back · 45.9M over the session, 250.6k per request
   Cache read    ███████████████████░ 96.2% 44.1M tokens
   Cache write   █░░░░░░░░░░░░░░░░░░░  3.8% 1.7M tokens
   Fresh input   ░░░░░░░░░░░░░░░░░░░░  0.0% 366 tokens
-
-Output · 207.4k written
-> Thinking      ████░░░░░░░░░░░░░░░░ 18.2% 37.7k tokens
-  Generating    ████████████████░░░░ 81.8% 169.8k tokens
 ```
 
 Every number comes straight from each request's `usage` — `thinking_tokens` is reported, not
 inferred — so this is the same table for every session, with no fit, no sample floor and no
 confidence caveat.
 
-Input and output get a bar each rather than sharing one, because they are not the same
-quantity. Input counts the same context re-read on every request: 183 requests against 250.6k
+Output leads: it is the smaller number by two orders of magnitude and the one the screen is
+for, while context is what that output cost to get. They get a bar each rather than sharing
+one, because they are not the same quantity. Input counts the same context re-read on every request: 183 requests against 250.6k
 of context is 45.9M "tokens" for a conversation holding a few hundred thousand. Output counts
 what was written, once. Share a scale between them and output is 0.45% of the total with
 thinking invisible inside it — which is the thing the screen exists to show. A context row a

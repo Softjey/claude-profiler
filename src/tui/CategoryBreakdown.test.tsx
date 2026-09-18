@@ -58,8 +58,8 @@ function makeTimeline(overrides: Partial<MergedTimeSplit> = {}): MergedTimeSplit
 
 describe("ModelBreakdownTable", () => {
   it("numbers the cursor across both blocks, not just the output one", () => {
-    // makeTokens has cache reads and fresh input but no cache writes, so the
-    // rows are: Cache read, Fresh input, Thinking, Generating.
+    // Output leads, so with makeTokens (cache reads and fresh input, no cache
+    // writes) the rows are: Thinking, Generating, Cache read, Fresh input.
     const lines = (index: number) => {
       const { lastFrame } = render(
         createElement(ModelBreakdownTable, {
@@ -71,10 +71,11 @@ describe("ModelBreakdownTable", () => {
       );
       return (lastFrame() ?? "").split("\n");
     };
-    expect(lines(0).find((l) => l.includes("Cache read"))).toContain(">");
-    expect(lines(2).find((l) => l.includes("Thinking"))).toContain(">");
-    expect(lines(3).find((l) => l.includes("Generating"))).toContain(">");
-    expect(lines(3).find((l) => l.includes("Cache read"))).not.toContain(">");
+    expect(lines(0).find((l) => l.includes("Thinking"))).toContain(">");
+    expect(lines(1).find((l) => l.includes("Generating"))).toContain(">");
+    expect(lines(2).find((l) => l.includes("Cache read"))).toContain(">");
+    expect(lines(3).find((l) => l.includes("Fresh input"))).toContain(">");
+    expect(lines(3).find((l) => l.includes("Thinking"))).not.toContain(">");
   });
 
   it("leaves out a context row the session never had, rather than showing it at zero", () => {
