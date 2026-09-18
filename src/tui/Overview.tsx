@@ -149,12 +149,11 @@ export function OverviewScreen({ profile, nav }: ScreenProps): React.JSX.Element
         <ToolTable tools={profile.tools} selectedIndex={selectedIndex} sortKey={sortKey} filter={filter} active={inDetail} />
       ) : category === "model" ? (
         <ModelBreakdownTable
-            breakdown={profile.modelBreakdown}
-            tokens={profile.tokens}
-            selectedIndex={modelSelection}
-            active={inDetail}
-            excludeStalled={excludeStalled}
-          />
+          breakdown={profile.modelBreakdown}
+          tokens={profile.tokens}
+          selectedIndex={modelSelection}
+          active={inDetail}
+        />
       ) : category === "you" ? (
         <UserPromptList userGaps={profile.timeline.userGaps} selectedIndex={youSelection} active={inDetail} />
       ) : (

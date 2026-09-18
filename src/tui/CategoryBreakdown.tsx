@@ -1,14 +1,6 @@
 import { Box, Text } from "ink";
 import type { MergedTimeSplit } from "../hooks/sidecar.js";
-import {
-  collapsePhases,
-  leadingMix,
-  withoutStalled,
-  type LeadingMix,
-  type ModelBreakdown,
-  type ModelStage,
-  type ModelStageSlice,
-} from "../metrics/model-breakdown.js";
+import type { ModelBreakdown } from "../metrics/model-breakdown.js";
 import type { TokenStats } from "../metrics/tokens.js";
 import type { UnaccountedCause, UserGap } from "../metrics/time-split.js";
 import { formatCount, formatMs, formatPercent, truncate } from "./format.js";
@@ -25,23 +17,6 @@ function bar(fraction: number, color: string): React.JSX.Element {
     </Text>
   );
 }
-
-const STAGE_LABELS: Record<ModelStage, string> = {
-  reading: "Reading context + 1st block",
-  // Qualified on purpose: these two count only what followed a recorded block
-  // boundary. Unqualified, a session whose thinking is all first-block reads
-  // as "Thinking 0.0%" — that the model never thought, which is false.
-  thinking: "Thinking, after the 1st block",
-  generating: "Generating, after the 1st block",
-};
-
-const STAGE_COLORS: Record<ModelStage, string> = {
-  reading: "blue",
-  thinking: "magenta",
-  generating: "cyan",
-};
-
-const STAGE_LABEL_WIDTH = 34;
 
 type OutputKind = "thinking" | "rest";
 
@@ -133,182 +108,44 @@ export interface ModelBreakdownTableProps {
   selectedIndex: number;
   /** See ToolTableProps.active: only highlight once the cursor is in this table. */
   active: boolean;
-  /**
-   * Take `suspectMs` out of the rows and out of their denominator, so the
-   * table describes only the time the model was demonstrably working — the
-   * same lens the headline split is under (TimeSplitBar). Both have to move
-   * together: a screen where the bar says Model 16% and the table below it
-   * still totals the slept hours is worse than either reading alone.
-   */
-  excludeStalled?: boolean;
 }
 
-/**
- * The Model bucket exactly as the transcript recorded it, block kind by block
- * kind. It answers a different question from the token split above — where
- * the recorded time went, rather than what was produced — and it is where the
- * stalled lens lands, since a slept machine costs time and no tokens at all.
- *
- * Its leading row is not pure generation, which no shorter label can carry,
- * so it keeps its prose.
- */
-function MeasuredGrid({
-  coverage,
-  stages,
-  mix,
-  excludeStalled,
-  selectedIndex,
-  active,
-}: {
-  coverage: ModelBreakdown["coverage"];
-  stages: ModelStageSlice[];
-  mix: LeadingMix;
-  excludeStalled: boolean;
+export interface ModelBreakdownTableProps {
+  breakdown: ModelBreakdown;
+  /** Token usage for the session, which the output split is read from. */
+  tokens: TokenStats;
   selectedIndex: number;
+  /** See ToolTableProps.active: only highlight once the cursor is in this table. */
   active: boolean;
-}): React.JSX.Element {
-  return (
-    <Box flexDirection="column">
-      <Text dimColor>
-        measured from per-block record timestamps · {coverage.totalRequests} request
-        {coverage.totalRequests === 1 ? "" : "s"}, {coverage.requestsWithBlockSplit} written as more than one block
-      </Text>
-      {stages.map((stage, i) => {
-        const selected = active && i === selectedIndex;
-        return (
-          <Box key={stage.stage} flexDirection="column">
-            <Box>
-              <Box width={STAGE_LABEL_WIDTH} flexShrink={0}>
-                <Text bold={selected} wrap="truncate-end">
-                  {selected ? ">" : " "} {STAGE_LABELS[stage.stage]}
-                </Text>
-              </Box>
-              {bar(stage.pctOfModel, STAGE_COLORS[stage.stage])}
-              <Text>
-                {" "}
-                {formatPercent(stage.pctOfModel)} ({formatMs(stage.ms)}
-                {/* The slice count belongs to the unfiltered row: removing a
-                    stalled request's time does not remove the records that
-                    closed those slices, and there is no per-slice suspect
-                    count to net off (withoutStalled, model-breakdown.ts). */}
-                {excludeStalled ? "" : `, ${stage.slices} slice${stage.slices === 1 ? "" : "s"}`})
-              </Text>
-            </Box>
-            {stage.stage === "reading" ? (
-              <Text dimColor>
-                {"      "}
-                {mix.thinkingSlices} of those began by thinking ({formatMs(mix.thinkingMs)}) · {mix.outputSlices} went
-                straight to output ({formatMs(mix.outputMs)})
-              </Text>
-            ) : null}
-          </Box>
-        );
-      })}
-      <Text dimColor>{"  "}the first row also holds the API queue and the first block's own output:</Text>
-      <Text dimColor>{"  "}a block is timestamped at its end, so those cannot be told apart</Text>
-    </Box>
-  );
 }
 
 /**
- * Model's own drill-down, as the three stages of a request: reading the
- * context back in, thinking, generating. CC writes one record per content
- * block, each with its own timestamp, so every row is wall-clock that was
- * actually spent there — not `modelMs` apportioned by token share, which is
- * what this replaces (model-breakdown.ts).
+ * Model's own drill-down: what the model produced, in tokens it reported.
  *
- * The underlying measurement is a six-cell grid (kind × position) and stays
- * that way in `breakdown.phases` and in the JSON artifact; `collapsePhases`
- * reads it down to three because the position axis is only interesting for
- * one thing — that a request's leading slice also covers the API queue and
- * reading the prompt back in, which the transcript cannot separate from the
- * first block's own output. That caveat is the "Reading context" row, so it
- * survives the collapse instead of being averaged away.
+ * Time is deliberately absent. It was here twice before — once as a split
+ * estimated from a fitted generation rate, once as the per-block grid the
+ * transcript measures — and both were answering a question the headline bar
+ * already owns. On a session that slept for eleven of its fourteen hours the
+ * grid's leading row read 92.9%, which is a true statement about timestamps
+ * and a useless one about the model. The bar says that plainly, with its own
+ * Stalled row and the `x` lens (TimeSplitBar); repeating it here, itemised,
+ * only buried the one thing this screen is for.
+ *
+ * Tokens cannot be distorted that way: a slept laptop produces none.
  */
 export function ModelBreakdownTable({
   breakdown,
   tokens,
   selectedIndex,
   active,
-  excludeStalled = false,
 }: ModelBreakdownTableProps): React.JSX.Element {
-  const { coverage, phases, suspectMs, totalMs } = breakdown;
-
-  if (phases.length === 0) {
-    return <Text dimColor>No model time recorded in this session.</Text>;
-  }
-
-  // A lens with nothing to hide is no lens: with no suspect time the two
-  // renderings are identical, and the notes below would promise a subtraction
-  // that never happened.
-  const lensed = excludeStalled && suspectMs > 0;
-  const collapsed = collapsePhases(phases, totalMs);
-  const stages = lensed ? withoutStalled(collapsed) : collapsed;
-  const mix = leadingMix(phases);
-
   return (
-    <Box flexDirection="column">
-      <TokenSplit
-        tokens={tokens}
-        requests={coverage.totalRequests}
-        selectedIndex={selectedIndex}
-        active={active}
-      />
-      <Box marginTop={1}>
-        <MeasuredGrid
-          coverage={coverage}
-          stages={stages}
-          mix={mix}
-          excludeStalled={lensed}
-          selectedIndex={-1}
-          active={false}
-        />
-      </Box>
-      {/* Only while the stalled time is still in the rows. Once it has been
-          taken out, this is an itemised account of something the screen is no
-          longer showing — and the bar above already says how much was dropped
-          and what is left (TimeSplitBar). */}
-      {suspectMs > 0 && !lensed ? (
-        <Box marginTop={1} flexDirection="column">
-          {/* Plain rather than red: this is a finding about the machine, not a
-              warning about anything the person can fix, and it matches the
-              quiet Stalled row on the bar above (TimeSplitBar). */}
-          <Text>
-            {formatMs(suspectMs)} ({formatPercent(totalMs > 0 ? suspectMs / totalMs : 0)}) of this is probably not the
-            model working:
-          </Text>
-          {breakdown.suspect.map((entry) => (
-            <Text key={entry.reason} dimColor>
-              {"  "}
-              {entry.reason === "api_error"
-                ? `${entry.requests} failed API call${entry.requests === 1 ? "" : "s"} CC wrote itself` +
-                  (entry.kinds.length > 0 ? ` (${entry.kinds.join(", ")})` : "")
-                : `${entry.requests} request${entry.requests === 1 ? "" : "s"} that ran for minutes below ` +
-                  `${breakdown.stallThresholdTokensPerSec.toFixed(1)} tok/s — a slept machine or a dropped stream`}
-              {" — "}
-              {formatMs(entry.ms)}
-            </Text>
-          ))}
-          <Text dimColor>
-            {"  "}counted in the rows above, not on top of them: {formatMs(totalMs - suspectMs)} is left that looks
-            like generation
-          </Text>
-        </Box>
-      ) : null}
-      {/* Dropped under the lens for the same reason: the slowest request of a
-          session with an eleven-hour sleep in it is that sleep, and a
-          "slowest working request" is a second answer to a question the
-          request list (⏎) answers properly. */}
-      {breakdown.requests.length > 0 && !lensed ? (
-        <Box marginTop={1}>
-          <Text dimColor>
-            slowest request: {formatMs(Math.max(...breakdown.requests.map((r) => r.totalMs)))} ·{" "}
-            {formatCount(breakdown.requests.reduce((sum, r) => sum + r.outputTokens, 0))} output tokens over all
-            requests
-          </Text>
-        </Box>
-      ) : null}
-    </Box>
+    <TokenSplit
+      tokens={tokens}
+      requests={breakdown.coverage.totalRequests}
+      selectedIndex={selectedIndex}
+      active={active}
+    />
   );
 }
 

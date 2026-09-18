@@ -101,13 +101,15 @@ function makeProfile(overrides: Partial<Profile> = {}): Profile {
     },
     tools: [makeTool({ name: "Bash" }), makeTool({ name: "Read", totalMs: 500, medianMs: 100 })],
     subagents: [],
-    tokens: { byModel: {}, totals: { input: 0, output: 0, thinking: 0, cacheRead: 0, cacheCreate1h: 0, cacheCreate5m: 0 } },
+    tokens: {
+      byModel: {},
+      totals: { input: 100, output: 10_000, thinking: 2_000, cacheRead: 900_000, cacheCreate1h: 0, cacheCreate5m: 0 },
+    },
     cost: null,
     context: { turns: [] },
     prompts: [],
     hooks: null,
     phases: null,
-    modelStages: null,
     diagnostics: { skippedLines: 0, unknownRecordTypes: {}, unmatchedToolUses: 0, versionsSeen: [] },
     ...overrides,
   };
@@ -126,12 +128,12 @@ function renderOverview(profile: Profile) {
 }
 
 describe("OverviewScreen", () => {
-  it("shows the measured model breakdown by default", () => {
+  it("shows the model's output token split by default", () => {
     const { lastFrame } = renderOverview(makeProfile());
     const frame = lastFrame() ?? "";
-    expect(frame).toContain("Reading context + 1st block");
-    expect(frame).toContain("Generating, after the 1st block");
-    expect(frame).toContain("measured from per-block record timestamps");
+    expect(frame).toContain("Thinking");
+    expect(frame).toContain("Text + tools");
+    expect(frame).toContain("context read back per request");
   });
 
   it("opens the request list from any stage row on Enter", async () => {
@@ -184,10 +186,10 @@ describe("OverviewScreen", () => {
     expect(frame).toMatch(/Tools\s+\S*\s*33\.3%/);
     expect(frame).not.toMatch(/Stalled\s+[█░]/);
     expect(frame).toContain("x show stalled");
-    // The Model table under the bar moves with it, rather than still totalling
-    // the slept hours while the bar above says otherwise.
-    expect(frame).toMatch(/Generating, after the 1st block\s+\S*\s*100\.0% \(1\.0s\)/);
+    // The Model table under the bar carries no time at all now, so it cannot
+    // contradict the bar the way the old per-block grid could.
     expect(frame).not.toContain("probably not the model working");
+    expect(frame).not.toMatch(/Generating, after the 1st block/);
 
     stdin.write("x");
     await tick();
@@ -319,7 +321,7 @@ describe("OverviewScreen", () => {
     stdin.write("\r"); // into Model's breakdown
     await tick();
     const frame = lastFrame() ?? "";
-    expect(frame).toContain("Reading context + 1st block");
-    expect(frame).toContain("Generating, after the 1st block");
+    expect(frame).toContain("Thinking");
+    expect(frame).toContain("Text + tools");
   });
 });

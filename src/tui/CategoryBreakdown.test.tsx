@@ -57,53 +57,13 @@ function makeTimeline(overrides: Partial<MergedTimeSplit> = {}): MergedTimeSplit
 }
 
 describe("ModelBreakdownTable", () => {
-  it("shows the three stages of a request, with the leading slice named for what dominates it", () => {
-    const { lastFrame } = render(
-      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), tokens: makeTokens(), selectedIndex: 0, active: true }),
-    );
-    const frame = lastFrame() ?? "";
-    expect(frame).toContain("Reading context + 1st block");
-    // Qualified, so a 0.0% row is not read as "the model never thought".
-    expect(frame).toContain("Thinking, after the 1st block");
-    expect(frame).toContain("Generating, after the 1st block");
-    // The first-block phase, whatever its kind, is the reading row.
-    expect(frame).toContain("75.0%");
-    expect(frame).toContain("measured from per-block record timestamps");
-    // The caveat the position axis existed for has to survive the collapse.
-    expect(frame).toContain("timestamped at its end");
-  });
-
-  it("says how much of the leading slice began by thinking, since that row hides it", () => {
-    const { lastFrame } = render(
-      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), tokens: makeTokens(), selectedIndex: 0, active: true }),
-    );
-    expect(lastFrame() ?? "").toContain("3 of those began by thinking");
-  });
-
-  it("keeps a stage with no time as a visible zero rather than dropping the row", () => {
-    const { lastFrame } = render(
-      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), tokens: makeTokens(), selectedIndex: 0, active: true }),
-    );
-    // The fixture never thinks after its first block: that is a finding, not
-    // a missing row.
-    expect((lastFrame() ?? "").split("\n").find((l) => l.includes("Thinking"))).toContain("0.0%");
-  });
-
-  it("says how many requests the split actually rests on", () => {
-    const { lastFrame } = render(
-      createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), tokens: makeTokens(), selectedIndex: 0, active: true }),
-    );
-    expect(lastFrame() ?? "").toContain("3 requests, 2 written as more than one block");
-  });
-
   it("marks the selected row in the token split, which is where the cursor lives", () => {
     const { lastFrame } = render(
       createElement(ModelBreakdownTable, { breakdown: makeBreakdown(), tokens: makeTokens(), selectedIndex: 1, active: true }),
     );
     const lines = (lastFrame() ?? "").split("\n");
     expect(lines.find((l) => l.includes("Text + tools"))).toContain(">");
-    // The measured grid below is a record, not a menu, so it never takes the cursor.
-    expect(lines.find((l) => l.includes("Reading context"))).not.toContain(">");
+    expect(lines.find((l) => l.includes("Thinking"))).not.toContain(">");
   });
 
   it("splits output into thinking and everything else, from the reported tokens", () => {
@@ -137,114 +97,6 @@ describe("ModelBreakdownTable", () => {
     expect(lastFrame() ?? "").toContain("No token usage recorded");
   });
 
-  it("calls out the time in the bucket that is not the model working", () => {
-    const { lastFrame } = render(
-      createElement(ModelBreakdownTable, {
-        tokens: makeTokens(),
-        breakdown: makeBreakdown({
-          suspectMs: 3000,
-          suspect: [
-            { reason: "stalled", ms: 2000, requests: 2, pctOfModel: 0.5, kinds: [] },
-            { reason: "api_error", ms: 1000, requests: 1, pctOfModel: 0.25, kinds: ["server_error"] },
-          ],
-        }),
-        selectedIndex: 0,
-        active: true,
-      }),
-    );
-    const frame = lastFrame() ?? "";
-    expect(frame).toContain("probably not the model working");
-    expect(frame).toContain("server_error");
-    expect(frame).toContain("4.2 tok/s");
-    // The leftover is stated so the rows above are not mistaken for pure generation.
-    expect(frame).toContain("is left that looks");
-  });
-
-  it("takes the stalled time out of the rows and out of their denominator", () => {
-    const { lastFrame } = render(
-      createElement(ModelBreakdownTable, {
-        tokens: makeTokens(),
-        breakdown: makeBreakdown({
-          totalMs: 4000,
-          // 3s of the 3s reading row was one slept request; the 1s of
-          // generation after it was real work.
-          phases: [
-            { kind: "thinking", position: "first", ms: 3000, pctOfModel: 0.75, slices: 3, suspectMs: 3000 },
-            { kind: "text", position: "continuation", ms: 1000, pctOfModel: 0.25, slices: 2, suspectMs: 0 },
-          ],
-          suspectMs: 3000,
-          suspect: [{ reason: "stalled", ms: 3000, requests: 1, pctOfModel: 0.75, kinds: [] }],
-        }),
-        selectedIndex: 0,
-        active: true,
-        excludeStalled: true,
-      }),
-    );
-    const frame = lastFrame() ?? "";
-
-    // Without the lens the reading row is 75%; with it, the 1s that was really
-    // generation is the whole of what is left.
-    expect(frame).toMatch(/Reading context \+ 1st block\s+\S*\s*0\.0%/);
-    expect(frame).toMatch(/Generating, after the 1st block\s+\S*\s*100\.0% \(1\.0s\)/);
-    // The slice count goes with it: the records still exist, so quoting them
-    // beside a reduced time would be a claim the subtraction cannot support.
-    expect(frame).not.toContain("slice");
-    // The itemised account of the stalled time goes with it: the bar above
-    // already says how much was dropped, and repeating it here would be a
-    // breakdown of something this table is no longer showing.
-    expect(frame).not.toContain("probably not the model working");
-    expect(frame).not.toContain("slowest");
-  });
-
-  it("keeps the unfiltered reading when the lens is off, and ignores it with nothing to hide", () => {
-    const withStall = makeBreakdown({
-      phases: [
-        { kind: "thinking", position: "first", ms: 3000, pctOfModel: 0.75, slices: 3, suspectMs: 3000 },
-        { kind: "text", position: "continuation", ms: 1000, pctOfModel: 0.25, slices: 2, suspectMs: 0 },
-      ],
-      suspectMs: 3000,
-      suspect: [{ reason: "stalled", ms: 3000, requests: 1, pctOfModel: 0.75, kinds: [] }],
-    });
-    const off = render(
-      createElement(ModelBreakdownTable, {
-        tokens: makeTokens(),
-        breakdown: withStall,
-        selectedIndex: 0,
-        active: true,
-        excludeStalled: false,
-      }),
-    );
-    expect(off.lastFrame() ?? "").toMatch(/Reading context \+ 1st block\s+\S*\s*75\.0%/);
-
-    // A session with no suspect time renders the same under either flag: a
-    // lens with nothing to hide must not promise a subtraction it never made.
-    const clean = makeBreakdown();
-    const lensed = render(
-      createElement(ModelBreakdownTable, {
-        tokens: makeTokens(),
-        breakdown: clean,
-        selectedIndex: 0,
-        active: true,
-        excludeStalled: true,
-      }),
-    );
-    const plain = render(
-      createElement(ModelBreakdownTable, { tokens: makeTokens(), breakdown: clean, selectedIndex: 0, active: true }),
-    );
-    expect(lensed.lastFrame()).toBe(plain.lastFrame());
-  });
-
-  it("says so plainly when there is no model time at all", () => {
-    const { lastFrame } = render(
-      createElement(ModelBreakdownTable, {
-        tokens: makeTokens(),
-        breakdown: makeBreakdown({ totalMs: 0, phases: [] }),
-        selectedIndex: 0,
-        active: true,
-      }),
-    );
-    expect(lastFrame() ?? "").toContain("No model time recorded");
-  });
 });
 
 describe("UserPromptList", () => {

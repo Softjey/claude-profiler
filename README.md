@@ -118,36 +118,10 @@ Only output is split. On a real session input outweighs it by two orders of magn
 reads with the answer invisible inside it. Context size is a number in the note instead.
 
 Time is not in this table at all. Tokens cannot speak to the part of a session that was
-spent waiting — a slept laptop produces none — so the time question is answered below, and
-in the headline bar, by the clock rather than by arithmetic on tokens:
-
-```
-measured from per-block record timestamps · 83 requests, 68 written as more than one block
-> Reading context + 1st block    ███████████████░░░░░ 78.1% (5h16m, 83 slices)
-      61 of those began by thinking (4h02m) · 22 went straight to output (1h14m)
-  Thinking, after the 1st block  ░░░░░░░░░░░░░░░░░░░░  0.2% (49s, 4 slices)
-  Generating, after the 1st block ████░░░░░░░░░░░░░░░ 21.7% (1h28m, 120 slices)
-  the first row also holds the API queue and the first block's own output:
-  a block is timestamped at its end, so those cannot be told apart
-
-5h50m (86.4%) of this is probably not the model working:
-  3 requests that ran for minutes below 5.3 tok/s — a slept machine or a dropped stream — 5h38m
-  1 failed API call CC wrote itself (server_error) — 11m51s
-  counted in the rows above, not on top of them: 54m58s is left that looks like generation
-```
-
-The first row is the one to read carefully. A request's leading slice covers the API queue,
-reading the (often 200k-token) prompt back in, and the first block the model produced, and a
-block carries only its *end* timestamp — so no honest line can be drawn between them.
-
-That is also why the other two rows say "after the 1st block". Thinking is nearly always a
-request's *first* block, so almost all of it is inside row one; the `Thinking` row counts only
-thinking that followed a recorded block boundary, which is rare. Unqualified it would read as
-"the model never thought" on a session that thought in half its requests — hence the indented
-line, which says how much of row one began by thinking.
-
-The underlying six-cell grid (thinking/text/tool_use × first/later) is still in the JSON
-artifact under `modelBreakdown.phases`.
+spent waiting — a slept laptop produces none — and the headline bar already answers that,
+with its own Stalled row and the `x` lens. A per-block time grid used to sit here too; on a
+session that slept for eleven of its fourteen hours its leading row read 92.9%, a true
+statement about timestamps and a useless one about the model, and it buried the split above.
 
 A further `⏎` opens one row per API request, sortable by total time, first block, throughput
 or context size — and `←→` from there shows the same total grouped by what handed control
