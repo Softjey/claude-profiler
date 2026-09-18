@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  areHooksInstalled,
   computeInstalledSettings,
   eventsToInstall,
   formatDiff,
@@ -14,7 +15,7 @@ import { HIGH_VOLUME_HOOK_EVENTS, PROFILER_HOOK_EVENTS } from "./records.js";
 
 interface HookEntry {
   matcher?: string;
-  hooks: { type: string; command: string }[];
+  hooks: { type: string; command: string; async?: boolean }[];
 }
 
 /** Reads one event's entries out of loosely-typed settings. */
@@ -71,7 +72,7 @@ describe("computeInstalledSettings", () => {
       model: "sonnet",
       hooks: {
         PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "echo hi" }] }],
-        Notification: [{ hooks: [{ type: "command", command: "say done" }] }],
+        Stop: [{ hooks: [{ type: "command", command: "say done" }] }],
       },
     };
 
@@ -80,8 +81,8 @@ describe("computeInstalledSettings", () => {
     expect(next.model).toBe("sonnet");
     expect(entries(next, "PreToolUse")).toHaveLength(2);
     expect(entries(next, "PreToolUse")[0]?.hooks[0]?.command).toBe("echo hi");
-    expect(entries(next, "Notification")).toHaveLength(2);
-    expect(entries(next, "Notification")[0]?.hooks[0]?.command).toBe("say done");
+    expect(entries(next, "Stop")).toHaveLength(2);
+    expect(entries(next, "Stop")[0]?.hooks[0]?.command).toBe("say done");
   });
 
   it("leaves a foreign hook event it does not subscribe to completely alone", () => {
@@ -96,6 +97,57 @@ describe("computeInstalledSettings", () => {
     const { next } = computeInstalledSettings({ hooks: { PreToolUse: "nonsense" } }, scriptPath);
 
     expect(entries(next, "PreToolUse")).toHaveLength(1);
+  });
+
+  it("runs every hook async except the ones that fire right before teardown", () => {
+    const { next } = computeInstalledSettings({}, scriptPath, eventsToInstall(true));
+
+    for (const event of ["Stop", "StopFailure", "SessionEnd"]) {
+      expect(entries(next, event)[0]?.hooks[0]).not.toHaveProperty("async");
+    }
+    for (const event of ["PreToolUse", "PostToolUse", "PostToolBatch", "UserPromptSubmit", "MessageDisplay"]) {
+      expect(entries(next, event)[0]?.hooks[0]?.async).toBe(true);
+    }
+  });
+
+  it("no longer subscribes to Notification or PreModelSwitch", () => {
+    const { next } = computeInstalledSettings({}, scriptPath);
+
+    expect(entries(next, "Notification")).toHaveLength(0);
+    expect(entries(next, "PreModelSwitch")).toHaveLength(0);
+  });
+
+  it("upgrades an older synchronous install in place and drops retired events", () => {
+    const command = `node ${JSON.stringify(scriptPath)}`;
+    const sync = (matcher?: string) => ({ ...(matcher ? { matcher } : {}), hooks: [{ type: "command", command }] });
+    const older = {
+      hooks: {
+        PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "echo hi" }] }, sync("*")],
+        Stop: [sync()],
+        MessageDisplay: [sync()],
+        PreModelSwitch: [sync()],
+        Notification: [{ hooks: [{ type: "command", command: "say done" }, { type: "command", command }] }],
+      },
+    };
+
+    const upgraded = computeInstalledSettings(older, scriptPath);
+
+    expect(upgraded.updatedEvents).toContain("PreToolUse");
+    expect(upgraded.updatedEvents).toContain("MessageDisplay");
+    expect(upgraded.updatedEvents).not.toContain("Stop");
+    expect(upgraded.removedEvents).toEqual(["PreModelSwitch", "Notification"]);
+    expect(entries(upgraded.next, "PreToolUse")).toEqual([
+      { matcher: "Bash", hooks: [{ type: "command", command: "echo hi" }] },
+      { matcher: "*", hooks: [{ type: "command", command, async: true }] },
+    ]);
+    expect(entries(upgraded.next, "Stop")).toEqual([sync()]);
+    expect(entries(upgraded.next, "MessageDisplay")[0]?.hooks[0]?.async).toBe(true);
+    expect(upgraded.next.hooks).not.toHaveProperty("PreModelSwitch");
+    expect(entries(upgraded.next, "Notification")).toEqual([
+      { hooks: [{ type: "command", command: "say done" }] },
+    ]);
+
+    expect(computeInstalledSettings(upgraded.next, scriptPath).alreadyInstalled).toBe(true);
   });
 
   it("is idempotent: running twice does not duplicate the entry", () => {
@@ -122,6 +174,31 @@ describe("installedEvents", () => {
     const { next } = computeInstalledSettings({}, scriptPath, ["PreToolUse", "PostToolUse"]);
 
     expect(installedEvents(next, scriptPath)).toEqual(["PreToolUse", "PostToolUse"]);
+  });
+});
+
+describe("areHooksInstalled", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "cp-installed-"));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("counts an outdated synchronous install as installed", async () => {
+    const scriptPath = "/opt/claude-profiler/dist/hooks/hook-script.js";
+    const command = `node ${JSON.stringify(scriptPath)}`;
+    const hooks = Object.fromEntries(
+      PROFILER_HOOK_EVENTS.map((event) => [event, [{ hooks: [{ type: "command", command }] }]]),
+    );
+    const settingsPath = join(dir, "settings.json");
+    await writeFile(settingsPath, JSON.stringify({ hooks }));
+
+    expect(areHooksInstalled(settingsPath, scriptPath)).toBe(true);
+    expect(computeInstalledSettings({ hooks }, scriptPath).alreadyInstalled).toBe(false);
   });
 });
 

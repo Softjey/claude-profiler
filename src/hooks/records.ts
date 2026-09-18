@@ -55,12 +55,18 @@ export const PROFILER_HOOK_EVENTS = [
   // Context-window events that cost a cache rewrite.
   "PreCompact",
   "PostCompact",
-  "PreModelSwitch",
   "PostModelSwitch",
-  // What loaded into the window, and when CC asked for attention.
+  // What loaded into the window.
   "InstructionsLoaded",
-  "Notification",
 ] as const;
+
+/**
+ * Events an earlier release subscribed to and nothing reads any more:
+ * `PreModelSwitch` repeats what `PostModelSwitch` reports, and no metric used
+ * `Notification`. Still parsed so older sidecars keep loading; an install
+ * removes their subscriptions, since every one is a process spawn for nothing.
+ */
+export const RETIRED_HOOK_EVENTS = ["PreModelSwitch", "Notification"] as const;
 
 /**
  * Subscribed only on an explicit opt-in. `MessageDisplay` fires on every flush
@@ -72,11 +78,13 @@ export const HIGH_VOLUME_HOOK_EVENTS = ["MessageDisplay"] as const;
 
 export type ProfilerHookEvent = (typeof PROFILER_HOOK_EVENTS)[number];
 export type HighVolumeHookEvent = (typeof HIGH_VOLUME_HOOK_EVENTS)[number];
-export type SidecarEvent = ProfilerHookEvent | HighVolumeHookEvent;
+export type RetiredHookEvent = (typeof RETIRED_HOOK_EVENTS)[number];
+export type SidecarEvent = ProfilerHookEvent | HighVolumeHookEvent | RetiredHookEvent;
 
 export const ALL_HOOK_EVENTS: readonly SidecarEvent[] = [
   ...PROFILER_HOOK_EVENTS,
   ...HIGH_VOLUME_HOOK_EVENTS,
+  ...RETIRED_HOOK_EVENTS,
 ];
 
 const EVENT_SET = new Set<string>(ALL_HOOK_EVENTS);

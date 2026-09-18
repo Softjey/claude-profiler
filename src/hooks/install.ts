@@ -3,11 +3,22 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
-import { HIGH_VOLUME_HOOK_EVENTS, PROFILER_HOOK_EVENTS, type SidecarEvent } from "./records.js";
+import {
+  HIGH_VOLUME_HOOK_EVENTS,
+  PROFILER_HOOK_EVENTS,
+  RETIRED_HOOK_EVENTS,
+  type SidecarEvent,
+} from "./records.js";
 
 interface HookEntry {
   matcher?: string;
-  hooks: { type: string; command: string }[];
+  hooks: HookCommand[];
+}
+
+interface HookCommand {
+  type: string;
+  command: string;
+  async?: boolean;
 }
 
 type HooksBlock = Record<string, unknown>;
@@ -24,6 +35,16 @@ const TOOL_MATCHED_EVENTS = new Set<SidecarEvent>([
   "PermissionRequest",
   "PermissionDenied",
 ]);
+
+/**
+ * Events whose hook stays synchronous. Everything else runs with `async: true`:
+ * the script only appends a line and never answers CC, so there is nothing to
+ * wait for, and waiting cost ~50ms per event — twice per tool call. These three
+ * fire at most once per turn and sit right before teardown, where `claude -p`
+ * kills any async hook still running; a sync hook there costs little and keeps
+ * the record.
+ */
+const SYNC_EVENTS = new Set<SidecarEvent>(["Stop", "StopFailure", "SessionEnd"]);
 
 interface Settings {
   hooks?: HooksBlock;
@@ -57,13 +78,19 @@ export function eventsToInstall(streamTiming = false): readonly SidecarEvent[] {
   return streamTiming ? [...PROFILER_HOOK_EVENTS, ...HIGH_VOLUME_HOOK_EVENTS] : PROFILER_HOOK_EVENTS;
 }
 
+/**
+ * Whether every event is subscribed at all. An install from an older release —
+ * synchronous entries, retired events — still counts: it measures sessions
+ * fine, and `install-hooks` upgrades it in place.
+ */
 export function areHooksInstalled(
   settingsPath: string = defaultSettingsPath(),
   scriptPath: string = resolveHookScriptPath(),
   events: readonly SidecarEvent[] = eventsToInstall(),
 ): boolean {
   const { parsed } = readSettingsFile(settingsPath);
-  return computeInstalledSettings(parsed, scriptPath, events).alreadyInstalled;
+  const present = new Set(installedEvents(parsed, scriptPath));
+  return events.every((event) => present.has(event));
 }
 
 /**
@@ -101,40 +128,102 @@ function isProfilerEntry(entry: HookEntry, scriptPath: string): boolean {
   return Array.isArray(entry?.hooks) && entry.hooks.some((h) => h.command === hookCommand(scriptPath));
 }
 
+function commandFor(event: SidecarEvent, scriptPath: string): HookCommand {
+  const command: HookCommand = { type: "command", command: hookCommand(scriptPath) };
+  if (!SYNC_EVENTS.has(event)) command.async = true;
+  return command;
+}
+
 function entryFor(event: SidecarEvent, scriptPath: string): HookEntry {
-  const hooks = [{ type: "command", command: hookCommand(scriptPath) }];
+  const hooks = [commandFor(event, scriptPath)];
   return TOOL_MATCHED_EVENTS.has(event) ? { matcher: "*", hooks } : { hooks };
 }
 
+/** Our command inside an entry, rewritten to the current shape; foreign commands untouched. */
+function upgradeEntry(entry: HookEntry, event: SidecarEvent, scriptPath: string): HookEntry {
+  const desired = commandFor(event, scriptPath);
+  return {
+    ...entry,
+    hooks: entry.hooks.map((h) => {
+      if (h.command !== desired.command) return h;
+      const { async: _previous, ...rest } = h;
+      return { ...rest, ...desired };
+    }),
+  };
+}
+
+function isCurrentEntry(entry: HookEntry, event: SidecarEvent, scriptPath: string): boolean {
+  const desired = commandFor(event, scriptPath);
+  return entry.hooks.every((h) => h.command !== desired.command || h.async === desired.async);
+}
+
 /**
- * Adds one entry per desired event, leaving every other key in `hooks` — and
- * every foreign entry inside the keys it does touch — exactly as it found them.
- * Idempotent per event: an event this tool has already registered is skipped,
- * so re-running after a version that subscribed to fewer events upgrades the
- * install in place instead of duplicating the entries that were already there.
+ * Brings the profiler's entries to the desired set, leaving every other key in
+ * `hooks` — and every foreign entry inside the keys it does touch — exactly as
+ * it found them. Idempotent per event, and an upgrade path for older installs:
+ *
+ * - a desired event with no profiler entry gets one (`addedEvents`);
+ * - a profiler entry in an outdated shape — say, synchronous — is rewritten in
+ *   place (`updatedEvents`);
+ * - a profiler entry on a retired event is removed, and the event key with it
+ *   when nothing else was registered there (`removedEvents`).
+ *
+ * An event outside the desired set that is not retired — `MessageDisplay` from
+ * an earlier `--stream-timing` install — is upgraded but never dropped: leaving
+ * a flag off a later run is not asking to lose it.
  */
 export function computeInstalledSettings(
   parsed: Settings,
   scriptPath: string,
   events: readonly SidecarEvent[] = eventsToInstall(),
-): { next: Settings; alreadyInstalled: boolean; addedEvents: SidecarEvent[] } {
+): {
+  next: Settings;
+  alreadyInstalled: boolean;
+  addedEvents: SidecarEvent[];
+  updatedEvents: SidecarEvent[];
+  removedEvents: SidecarEvent[];
+} {
   const existingHooks = (parsed.hooks ?? {}) as HooksBlock;
   const nextHooks: HooksBlock = { ...existingHooks };
   const addedEvents: SidecarEvent[] = [];
+  const updatedEvents: SidecarEvent[] = [];
+  const removedEvents: SidecarEvent[] = [];
 
-  for (const event of events) {
+  const entriesOf = (event: SidecarEvent): HookEntry[] => {
     const raw = existingHooks[event];
-    const entries: HookEntry[] = Array.isArray(raw) ? (raw as HookEntry[]) : [];
-    if (entries.some((e) => isProfilerEntry(e, scriptPath))) continue;
-    nextHooks[event] = [...entries, entryFor(event, scriptPath)];
-    addedEvents.push(event);
+    return Array.isArray(raw) ? (raw as HookEntry[]) : [];
+  };
+
+  for (const event of new Set([...events, ...HIGH_VOLUME_HOOK_EVENTS])) {
+    const entries = entriesOf(event);
+    const ours = entries.filter((e) => isProfilerEntry(e, scriptPath));
+    if (ours.length === 0) {
+      if (!events.includes(event)) continue;
+      nextHooks[event] = [...entries, entryFor(event, scriptPath)];
+      addedEvents.push(event);
+    } else if (!ours.every((e) => isCurrentEntry(e, event, scriptPath))) {
+      nextHooks[event] = entries.map((e) => (isProfilerEntry(e, scriptPath) ? upgradeEntry(e, event, scriptPath) : e));
+      updatedEvents.push(event);
+    }
   }
 
-  if (addedEvents.length === 0) {
-    return { next: parsed, alreadyInstalled: true, addedEvents };
+  for (const event of RETIRED_HOOK_EVENTS) {
+    const entries = entriesOf(event);
+    if (!entries.some((e) => isProfilerEntry(e, scriptPath))) continue;
+    const kept = entries
+      .map((e) => ({ ...e, hooks: e.hooks.filter((h) => h.command !== hookCommand(scriptPath)) }))
+      .filter((e) => e.hooks.length > 0);
+    if (kept.length > 0) nextHooks[event] = kept;
+    else delete nextHooks[event];
+    removedEvents.push(event);
   }
 
-  return { next: { ...parsed, hooks: nextHooks }, alreadyInstalled: false, addedEvents };
+  const changed = addedEvents.length + updatedEvents.length + removedEvents.length > 0;
+  if (!changed) {
+    return { next: parsed, alreadyInstalled: true, addedEvents, updatedEvents, removedEvents };
+  }
+
+  return { next: { ...parsed, hooks: nextHooks }, alreadyInstalled: false, addedEvents, updatedEvents, removedEvents };
 }
 
 /** A minimal line-based diff (LCS), good enough for a settings.json a few dozen lines long. */
@@ -206,6 +295,10 @@ export interface InstallResult {
   message: string;
   /** Events this run added; empty when nothing needed changing. */
   addedEvents: SidecarEvent[];
+  /** Events whose existing entry was rewritten to the current shape. */
+  updatedEvents: SidecarEvent[];
+  /** Retired events whose entry was removed. */
+  removedEvents: SidecarEvent[];
 }
 
 export async function installHooks(options: InstallOptions = {}): Promise<InstallResult> {
@@ -218,13 +311,18 @@ export async function installHooks(options: InstallOptions = {}): Promise<Instal
 
   const { raw, parsed, existed } = readSettingsFile(settingsPath);
   const before = installedEvents(parsed, scriptPath);
-  const { next, alreadyInstalled, addedEvents } = computeInstalledSettings(parsed, scriptPath, events);
+  const { next, alreadyInstalled, addedEvents, updatedEvents, removedEvents } = computeInstalledSettings(
+    parsed,
+    scriptPath,
+    events,
+  );
+  const changes = { addedEvents, updatedEvents, removedEvents };
 
   if (alreadyInstalled) {
     return {
       status: "already-installed",
       message: `claude-profiler hooks are already installed (${before.length} events).\n`,
-      addedEvents: [],
+      ...changes,
     };
   }
 
@@ -234,7 +332,13 @@ export async function installHooks(options: InstallOptions = {}): Promise<Instal
 
   const approved = await confirm(diffText);
   if (!approved) {
-    return { status: "aborted", message: "Install aborted; settings.json left unchanged.\n", addedEvents: [] };
+    return {
+      status: "aborted",
+      message: "Install aborted; settings.json left unchanged.\n",
+      addedEvents: [],
+      updatedEvents: [],
+      removedEvents: [],
+    };
   }
 
   // Never overwrite an existing backup. A second install — upgrading a
@@ -252,12 +356,20 @@ export async function installHooks(options: InstallOptions = {}): Promise<Instal
   mkdirSync(dirname(settingsPath), { recursive: true });
   writeFileSync(settingsPath, nextText);
 
-  const summary = `${upgrade ? "Added" : "Installed"} ${addedEvents.length} hook event${
-    addedEvents.length === 1 ? "" : "s"
-  } in ${settingsPath}\n  ${addedEvents.join(", ")}\n`;
+  const plural = (n: number) => `${n} hook event${n === 1 ? "" : "s"}`;
+  let summary = "";
+  if (addedEvents.length > 0) {
+    summary += `${upgrade ? "Added" : "Installed"} ${plural(addedEvents.length)} in ${settingsPath}\n  ${addedEvents.join(", ")}\n`;
+  }
+  if (updatedEvents.length > 0) {
+    summary += `Updated ${plural(updatedEvents.length)} to the current hook settings\n  ${updatedEvents.join(", ")}\n`;
+  }
+  if (removedEvents.length > 0) {
+    summary += `Removed ${plural(removedEvents.length)} no longer used\n  ${removedEvents.join(", ")}\n`;
+  }
   const backupNote = upgrade
     ? `Pre-existing backup at ${backupPath} left untouched, so uninstall still restores your original settings.\n`
     : `Original backed up to ${backupPath}\n`;
 
-  return { status: "installed", message: summary + backupNote, addedEvents };
+  return { status: "installed", message: summary + backupNote, ...changes };
 }

@@ -12,7 +12,9 @@
  * overhead. Measured across every sidecar on the author's machine, in a session
  * running `defaultMode: auto` where nothing could have been approved by hand,
  * it has a hard floor near 30ms and a second mode around 1.5s — neither of
- * which is a person deciding anything.
+ * which is a person deciding anything. (Installs since then register the tool
+ * hooks with `async: true`, so on newer sessions this tool's spawns no longer
+ * sit inside the span; other tools' synchronous hooks still do.)
  *
  * `PreToolUse` fires *before* the permission prompt (its own return value may
  * carry a `permissionDecision`, so it has to). `PermissionRequest` fires when
