@@ -44,7 +44,20 @@ function Header({ profile }: { profile: Profile }): React.JSX.Element {
   );
 }
 
-/** Shown under the header on every tab whenever tool timing is derived rather than measured — moved here (out of TimeSplitBar, Overview-only) so it isn't tied to whichever tab happens to render the time split. */
+const DERIVED_CAVEAT =
+  "Tool time lumps together execution, approval waits, and idle gaps — these are derived, not exact. ";
+
+/**
+ * Shown under the header on every tab — moved here (out of TimeSplitBar,
+ * Overview-only) so it isn't tied to whichever tab happens to render the time
+ * split.
+ *
+ * A missing hook install outranks anything about this particular session: it is
+ * the one thing the user can still act on, and it holds for every session they
+ * profile next, so it is a yellow warning even when this session did get
+ * measured. With hooks in place there is nothing left to do, so a session that
+ * predates them is a cyan note and a measured one says nothing at all.
+ */
 function ToolTimingCaveat({
   profile,
   hooksInstalled,
@@ -52,27 +65,34 @@ function ToolTimingCaveat({
   profile: Profile;
   hooksInstalled: boolean;
 }): React.JSX.Element | null {
-  if (profile.timeline.precision !== "derived") return null;
+  const derived = profile.timeline.precision === "derived";
 
-  if (hooksInstalled) {
+  if (!hooksInstalled) {
     return (
       <Box marginBottom={1}>
-        <Text color="cyan">
-          Tool time includes approval waits — these are derived, not exact. This session predates
-          your hook install, so it can't be re-measured; sessions started from now on will have exact timings.
+        <Text color="yellow">
+          {derived
+            ? DERIVED_CAVEAT
+            : "This session was measured with hooks, but they are no longer installed. "}
+          Run `claude-profiler install-hooks` to split execution, approval, and idle time precisely on
+          future sessions.
         </Text>
       </Box>
     );
   }
 
-  return (
-    <Box marginBottom={1}>
-      <Text color="yellow">
-        Tool time includes approval waits — these are derived, not exact. Run `claude-profiler install-hooks` to
-        measure exact tool execution time on future sessions.
-      </Text>
-    </Box>
-  );
+  if (derived) {
+    return (
+      <Box marginBottom={1}>
+        <Text color="cyan">
+          {DERIVED_CAVEAT}This session predates your hook install, so it can't be re-measured;
+          sessions started from now on will split execution, approval, and idle time precisely.
+        </Text>
+      </Box>
+    );
+  }
+
+  return null;
 }
 
 /**

@@ -118,11 +118,23 @@ describe("App", () => {
     expect(lastFrame()?.toLowerCase()).toContain("derived, not exact");
   });
 
-  it("omits the caveat once precision is exact", () => {
+  it("omits the caveat once precision is exact and the hooks are still installed", () => {
     const profile = makeProfile();
     profile.timeline.precision = "exact";
-    const { lastFrame } = render(createElement(App, { profile }));
-    expect(lastFrame()?.toLowerCase()).not.toContain("install-hooks");
+    const { lastFrame } = render(createElement(App, { profile, hooksInstalled: true }));
+    const frame = lastFrame()?.toLowerCase() ?? "";
+    expect(frame).not.toContain("install-hooks");
+    expect(frame).not.toContain("derived, not exact");
+  });
+
+  it("still warns about a missing hook install on a session that was measured", () => {
+    const profile = makeProfile();
+    profile.timeline.precision = "exact";
+    const { lastFrame } = render(createElement(App, { profile, hooksInstalled: false }));
+    const frame = lastFrame()?.toLowerCase() ?? "";
+    expect(frame).toContain("install-hooks");
+    // The session's own numbers are exact, so the derived caveat must not be claimed of it.
+    expect(frame).not.toContain("derived, not exact");
   });
 
   it("shows an info note instead of the install-hooks suggestion when hooks are already installed", () => {
