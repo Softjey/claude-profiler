@@ -20,29 +20,36 @@ measurements, not advice.
 ## Usage
 
 ```sh
-npx claude-profiler <sessionId>
+npx claude-profiler <query>
 ```
 
 Once installed globally, the shorter `cprof` alias works the same way:
 
 ```sh
-cprof <sessionId>
+cprof <query>
 ```
 
-`<sessionId>` can be a full UUID, a unique prefix, or an `agent-*` subagent transcript
-name. `claude-profiler` searches every project directory under `~/.claude/projects/` for
-a match; if the same id shows up in more than one project, you get an interactive picker.
+`<query>` is either a session id — a full UUID, a unique prefix, or an `agent-*` subagent
+transcript name — or a chat's title or first message. Anything made only of hex digits and
+dashes is looked up as an id; anything else is searched for as text inside the transcripts.
+`claude-profiler` searches every project directory under `~/.claude/projects/`.
+
+When the query matches more than one session — the same id in two project directories, or
+a title several chats share — you get an interactive picker listing each match's path,
+title, last activity, size, turns and duration. Outside an interactive terminal there is
+nothing to pick with, so it prints the matches and exits instead; rerun with a longer id.
 
 ```
-Usage: claude-profiler <sessionId> [options]
+Usage: claude-profiler <query> [options]
 
 Profile a Claude Code session transcript and show where the time went.
 
 Arguments:
-  sessionId        Session id: full uuid, unique prefix, or an agent-* name
+  query            Session id (full uuid, unique prefix, or an agent-* name)
+                   or a chat title to search for
 
 Options:
-  --json           Print the JSON profile artifact to stdout instead of launching the TUI
+  --json           Write the JSON profile artifact to a file instead of launching the TUI
   --out <path>     Write the JSON artifact to <path>
   --version        Print the version number and exit
   --help           Show this help message and exit
@@ -234,9 +241,22 @@ ranks tools by total result bytes for that reason.
 
 ## The JSON artifact
 
-Every run writes a JSON profile artifact (to a default location under `~/.claude/profiler/`,
-or to the path you pass with `--out`) before the TUI launches. Pass `--json` to print it to
-stdout instead of opening the TUI — useful for scripting or piping into `jq`.
+Every run writes a JSON profile artifact — to `~/.claude/profiler/profiles/<sessionId>.json`
+by default, or to the path you pass with `--out` — before the TUI launches. Pass `--json`
+to write it and skip the TUI; stdout then carries only the path it was written to, not the
+JSON itself:
+
+```sh
+cprof 7801be40 --json --out profile.json && jq '.timeline' profile.json
+```
+
+The same happens without `--json` when stdin is not an interactive terminal: the artifact is
+written, and the TUI is not started.
+
+**`timeline.modelMs` includes stalled time.** The artifact keeps the headline split as
+measured, so a session whose machine slept mid-request can report days of model time. The
+stalled and failed-call part is `modelBreakdown.suspectMs`; subtract it for the time the
+model actually worked, which is what the TUI's Model row shows next to its Stalled row.
 
 The artifact is complete enough that the whole TUI could be rebuilt from it alone, without
 the original transcript. Two top-level fields are populated only when a hook sidecar
