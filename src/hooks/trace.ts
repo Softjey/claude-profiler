@@ -32,7 +32,10 @@
  * v1 sidecars have no `PermissionRequest` records at all, so for those the
  * remainder cannot be split; it is reported as `unsplitWaitMs` and the trace's
  * `canSplitApproval` is false, which is what stops the UI presenting it as
- * either one.
+ * either one. A v2 sidecar can always split: v2 shipped together with the
+ * `PermissionRequest` subscription, so a v2 session with no such record — an
+ * auto-mode session, say — is one where nothing was prompted, not one where
+ * the prompts went unrecorded.
  */
 import {
   isV2,
@@ -169,7 +172,7 @@ export interface MessageTiming {
 export interface HookTrace {
   /** Highest sidecar schema version seen; 1 means no approval split exists. */
   schemaVersion: number;
-  /** True when `PermissionRequest` records are available for this session. */
+  /** True for a v2 sidecar, recorded with `PermissionRequest` subscribed. */
   canSplitApproval: boolean;
   calls: Map<string, CallTiming>;
   batches: BatchTiming[];
@@ -328,7 +331,10 @@ export function buildHookTrace(records: SidecarRecord[] | null): HookTrace | nul
 
   for (const record of records) {
     const v2 = isV2(record);
-    if (v2) schemaVersion = Math.max(schemaVersion, 2);
+    if (v2) {
+      schemaVersion = Math.max(schemaVersion, 2);
+      canSplitApproval = true;
+    }
 
     switch (record.event) {
       case "PreToolUse": {

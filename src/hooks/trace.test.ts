@@ -33,14 +33,15 @@ describe("buildHookTrace", () => {
       ]);
 
       const call = trace?.calls.get("t1");
-      expect(trace?.canSplitApproval).toBe(false);
+      // No PermissionRequest anywhere, but this is a v2 sidecar: the event was
+      // subscribed and never fired, so nothing was prompted — the auto-mode
+      // session, which must not be reported as a pre-PermissionRequest one.
+      expect(trace?.canSplitApproval).toBe(true);
       expect(call?.execMs).toBe(200);
       expect(call?.wasPrompted).toBe(false);
-      // canSplitApproval is false for this sidecar (no PermissionRequest
-      // anywhere), so the remainder stays unsplit rather than being claimed
-      // as either approval or overhead.
-      expect(call?.unsplitWaitMs).toBe(1000);
-      expect(call?.permissionMs).toBeNull();
+      expect(call?.overheadMs).toBe(1000);
+      expect(call?.permissionMs).toBe(0);
+      expect(call?.unsplitWaitMs).toBeNull();
     });
 
     it("separates the decision from dispatch overhead once a prompt is recorded", () => {
@@ -87,7 +88,7 @@ describe("buildHookTrace", () => {
         rec({ event: "PostToolUse", recordedAt: iso(100), toolUseId: "t1", toolName: "Bash", durationMs: 5000 }),
       ]);
 
-      expect(trace?.calls.get("t1")?.unsplitWaitMs).toBe(0);
+      expect(trace?.calls.get("t1")?.overheadMs).toBe(0);
     });
 
     it("leaves a v1 sidecar unsplit and says so", () => {
