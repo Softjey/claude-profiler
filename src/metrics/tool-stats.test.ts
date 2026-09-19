@@ -1,9 +1,4 @@
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildEventModel } from "../model/build-model.js";
-import { parseTranscript } from "../parse/parse-transcript.js";
 import { computeToolStats } from "./tool-stats.js";
 import type { ToolUseEvent } from "../model/events.js";
 
@@ -90,41 +85,5 @@ describe("computeToolStats", () => {
     );
 
     expect(stats.map((s) => s.name)).toEqual(["Big", "Small"]);
-  });
-});
-
-describe("computeToolStats against session 54fd3ef0", () => {
-  const transcriptPath = join(
-    homedir(),
-    ".claude/projects/-Users-softjey-Desktop-projects-personal-job-search-auto-applier/54fd3ef0-3d6f-48d5-8e4b-41bf3a8d13d8.jsonl",
-  );
-
-  const hasTranscript = (() => {
-    try {
-      readFileSync(transcriptPath);
-      return true;
-    } catch {
-      return false;
-    }
-  })();
-
-  const maybeIt = hasTranscript ? it : it.skip;
-
-  maybeIt("reports the documented computer-tool stats", async () => {
-    const { records } = await parseTranscript(transcriptPath);
-    const { toolUses } = buildEventModel(records);
-
-    const timestamps = toolUses.flatMap((t) => (t.startedAt ? [Date.parse(t.startedAt)] : []));
-    const spanMs = timestamps.length > 0 ? Math.max(...timestamps) - Math.min(...timestamps) : 0;
-
-    const stats = computeToolStats(toolUses, spanMs);
-    const computer = stats.find((s) => s.name === "mcp__claude-in-chrome__computer");
-
-    expect(computer).toBeDefined();
-    expect(computer?.calls).toBe(20);
-    expect(computer?.medianMs).toBeCloseTo(749, -1);
-    expect(computer?.maxMs).toBeCloseTo(1_064_111, -3);
-    expect(computer?.typicalMs).toBeLessThan(30_000);
-    expect(computer?.totalMs).toBeGreaterThan(17 * 60 * 1000);
   });
 });

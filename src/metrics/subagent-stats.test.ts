@@ -1,6 +1,4 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -123,41 +121,5 @@ describe("computeSubagentStats", () => {
 
     expect(result.subagents).toEqual([]);
     expect(result.unmatchedToolCallIds).toEqual(["call-1"]);
-  });
-});
-
-describe("computeSubagentStats against a real local session with subagents", () => {
-  const transcriptPath = join(
-    homedir(),
-    ".claude/projects/-Users-softjey-Desktop-projects-personal-onetap-work-core/ceac8b99-ffcd-4463-8218-60867acae378.jsonl",
-  );
-
-  const hasTranscript = (() => {
-    try {
-      readFileSync(transcriptPath);
-      return true;
-    } catch {
-      return false;
-    }
-  })();
-
-  const maybeIt = hasTranscript ? it : it.skip;
-
-  maybeIt("resolves the session's Agent calls to their own agent-*.jsonl transcripts via meta.json", async () => {
-    const { parseTranscript } = await import("../parse/parse-transcript.js");
-    const { buildEventModel } = await import("../model/build-model.js");
-
-    const { records } = await parseTranscript(transcriptPath);
-    const { toolUses } = buildEventModel(records);
-
-    const result = await computeSubagentStats(records, toolUses, transcriptPath);
-
-    expect(result.subagents.length).toBeGreaterThanOrEqual(2);
-    expect(result.matchMethodCounts.meta).toBeGreaterThanOrEqual(2);
-    for (const subagent of result.subagents) {
-      expect(
-        subagent.timeline.modelMs + subagent.timeline.toolsMs + subagent.timeline.userMs + subagent.timeline.unaccountedMs,
-      ).toBe(subagent.timeline.spanMs);
-    }
   });
 });

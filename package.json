@@ -2,8 +2,24 @@
   "name": "claude-profiler",
   "version": "0.1.0",
   "description": "Profile a Claude Code session transcript: see where the time went, per tool and per turn.",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "profiler",
+    "cli",
+    "tui"
+  ],
   "type": "module",
   "license": "MIT",
+  "author": "Softjey",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Softjey/claude-profiler.git"
+  },
+  "homepage": "https://github.com/Softjey/claude-profiler#readme",
+  "bugs": {
+    "url": "https://github.com/Softjey/claude-profiler/issues"
+  },
   "bin": {
     "claude-profiler": "dist/cli/bin.js",
     "cprof": "dist/cli/bin.js"

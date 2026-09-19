@@ -37,7 +37,7 @@ function makeProfile(overrides: Partial<Profile> = {}): Profile {
     session: {
       sessionId: "aaaaaaaa-0000-0000-0000-000000000000",
       transcriptPath: "/tmp/a.jsonl",
-      projectPath: "/Users/softjey/project",
+      projectPath: "/Users/me/project",
       gitBranch: "main",
       title: undefined,
       startedAt: "2026-01-01T00:00:00.000Z",

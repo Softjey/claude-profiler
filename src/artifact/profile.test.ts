@@ -28,7 +28,7 @@ describe("buildProfile", () => {
         type: "user",
         uuid: "u1",
         timestamp: iso(0),
-        cwd: "/Users/softjey/project",
+        cwd: "/Users/me/project",
         gitBranch: "main",
         version: "2.1.260",
         message: { role: "user", content: "do the thing" },
@@ -93,7 +93,7 @@ describe("buildProfile", () => {
 
     expect(profile.session.sessionId).toBe(sessionId);
     expect(profile.session.transcriptPath).toBe(transcriptPath);
-    expect(profile.session.projectPath).toBe("/Users/softjey/project");
+    expect(profile.session.projectPath).toBe("/Users/me/project");
     expect(profile.session.gitBranch).toBe("main");
     expect(profile.session.title).toBe("Do the thing");
     expect(profile.session.ccVersions).toEqual(["2.1.260"]);
@@ -140,7 +140,7 @@ describe("buildProfile", () => {
         type: "user",
         uuid: "u1",
         timestamp: iso(0),
-        cwd: "/Users/softjey/project",
+        cwd: "/Users/me/project",
         message: { role: "user", content: "do the thing" },
       },
       ...["a1", "a2", "a3"].map((uuid, i) => ({

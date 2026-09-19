@@ -4,11 +4,10 @@ import { looksLikeSessionId, resolveSession, type SessionListing } from "./resol
 import { SessionPicker } from "../tui/SessionPicker.js";
 import { Spinner } from "../tui/Spinner.js";
 import { App } from "../tui/App.js";
-// Registers the Timeline and Context tabs (T15) as an import side effect,
+// Registers the Timeline, Context and Hooks tabs as an import side effect,
 // same mechanism as App.tsx's own "./Overview.js" import — order here fixes
 // the `⇥` cycle order (Overview, pulled in by App.js above, then Timeline,
-// then Context) without App.tsx ever needing to change (T14 runs in
-// parallel on that file per plan.md's T15 step 3).
+// then Context, then Hooks) without App.tsx needing to know about them.
 import "../tui/Timeline.js";
 import "../tui/Context.js";
 import "../tui/Hooks.js";

@@ -30,8 +30,8 @@ CC emits a `claude_code.api_request` OTEL **log event** per API call. Captured v
 ```
 body: "claude_code.api_request",
 attributes: {
-  "session.id": "85c8d4e0-812e-4704-8ca2-70b22769d5ed",
-  "prompt.id":  "d9b54232-a60f-4398-868e-a2dd4c6f0ed4",
+  "session.id": "00000000-0000-0000-0000-000000000001",
+  "prompt.id":  "00000000-0000-0000-0000-000000000002",
   model: "claude-haiku-4-5-20251001",
   input_tokens: 10,
   output_tokens: 43,
@@ -41,7 +41,7 @@ attributes: {
   duration_ms: 1184,
   ttft_ms: 791,
   request_id: "req_011Cf9PNZNi8r1eLfmCDAxQA",
-  client_request_id: "461a2fb8-04f1-4e2d-b324-290f317458f5",
+  client_request_id: "00000000-0000-0000-0000-000000000003",
   speed: "normal",
   query_source: "sdk",
 }
