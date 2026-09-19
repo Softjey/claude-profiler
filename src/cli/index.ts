@@ -15,6 +15,7 @@ import { buildProfile, type Profile } from "../artifact/profile.js";
 import { writeProfileArtifact } from "../artifact/write.js";
 import { areHooksInstalled, installHooks } from "../hooks/install.js";
 import { uninstallHooks } from "../hooks/uninstall.js";
+import { runLive } from "../live/run.js";
 
 export interface CliArgs {
   query: string | undefined;
@@ -47,6 +48,8 @@ Other commands:
                      Fires once per streaming flush rather than once per turn,
                      so it costs a hook process per flush (~35ms each).
   uninstall-hooks  Remove the hooks that install-hooks added
+  live             Stream NDJSON snapshots of every running or today's session
+    --once           Print one snapshot and exit
 `;
 
 export function parseArgs(argv: string[]): CliArgs {
@@ -166,6 +169,17 @@ export async function run(
     const result = uninstallHooks();
     stdout(result.message);
     return 0;
+  }
+
+  if (argv[0] === "live") {
+    const rest = argv.slice(1);
+    const unknown = rest.filter((arg) => arg !== "--once");
+    if (unknown.length > 0) {
+      stderr(`Unknown option for live: ${unknown[0]}\n\n`);
+      printUsage(stderr);
+      return 1;
+    }
+    return runLive({ once: rest.includes("--once"), write: stdout });
   }
 
   let args: CliArgs;

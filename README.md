@@ -148,6 +148,59 @@ With hooks installed, you get:
   moved out of **You**.
 - A **Hooks** tab showing failed calls, result sizes per tool and cache-rewrite cost.
 
+## Menu bar app (macOS)
+
+`claude-profiler` profiles one session after the fact. The menu bar app answers the other
+question — **what is running right now** — for every Claude Code front end at once: the
+CLI, the VS Code extension and Claude Desktop's Code tab all run the same binary and write
+the same files, so one collector covers all three.
+
+```sh
+macos/scripts/bundle.sh         # → macos/build/Claude Profiler.app
+open "macos/build/Claude Profiler.app"
+```
+
+The menu bar shows how many sessions are working and today's token total. The popover
+lists each session with its source, state, model, context size, tokens, CPU and memory,
+plus a tokens-per-minute sparkline and — with hooks installed — the tool running right
+now. Click a session for charts and a button that opens the full terminal profiler on it.
+Optional notifications fire when Claude finishes a long run or waits for approval.
+
+What it reads, every one to five seconds:
+
+| Source | What it gives |
+| --- | --- |
+| `~/.claude/projects/**/*.jsonl` | tokens, context size, model, title, subagents |
+| `~/.claude/sessions/<pid>.json` | which sessions are running, and busy vs. idle |
+| `ps` over each session's process tree | CPU and memory, including MCP servers and tools |
+| `~/.claude/profiler/<id>.jsonl` | the running tool and pending approvals (needs hooks) |
+
+Notes and limits:
+
+- **Regular Claude Desktop chats are not shown.** They run on Anthropic's servers and
+  leave no local token record. Desktop's Code tab is shown in full.
+- **Cost stays blank for live sessions.** Claude Code writes its `cost-state` record at
+  the end of a session, and this tool never estimates cost from tokens.
+- `~/.claude/sessions/` is Claude Code's own internal format. Every field is treated as
+  optional, and a file that does not parse is skipped.
+- The app is signed ad hoc, so on another machine Gatekeeper asks once — right click →
+  **Open**. It bundles the collector as a Node single executable, so the machine running
+  it needs no Node.
+- Building needs Node >= 25.5 (for `node --build-sea`) and a Swift toolchain; the
+  Command Line Tools are enough, Xcode is not required.
+
+### The collector on its own
+
+```sh
+claude-profiler live          # NDJSON snapshot stream, one line per change
+claude-profiler live --once   # one snapshot, then exit
+```
+
+Each line is a complete snapshot — a consumer never merges deltas. Send
+`{"cmd":"rate","ms":1000}` on stdin to change the polling interval, `{"cmd":"refresh"}`
+to force one now. The collector exits when its stdin closes, so it never outlives the app
+that spawned it. The shapes are in [`src/live/protocol.ts`](src/live/protocol.ts).
+
 ## How to read the numbers
 
 - **Tool time includes approvals unless you have hooks.** One call where you stepped away
@@ -188,7 +241,18 @@ your machine.
 
 ```sh
 pnpm install
-pnpm verify   # build + unit tests
+pnpm verify        # build + unit tests
+pnpm macos:test    # Swift tests for the menu bar app
+pnpm macos:build   # assemble Claude Profiler.app
+```
+
+While working on the app, point it at a collector built from the checkout instead of the
+bundled one, and render a view to a PNG without clicking through the menu bar:
+
+```sh
+export CPROF_LIVE="node $PWD/dist/live/main.js"
+swift run --package-path macos ClaudeProfilerBar
+macos/.build/debug/ClaudeProfilerBar --render-png popover.png [--detail] [--dark]
 ```
 
 `test/corpus.test.ts` runs against your real transcripts in `~/.claude/projects/` and is
