@@ -38,7 +38,8 @@
     "dev": "tsc -p tsconfig.json --watch",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify": "pnpm run build && pnpm run test"
+    "verify": "pnpm run build && pnpm run test",
+    "prepublishOnly": "pnpm verify"
   },
   "dependencies": {
     "ink": "^7.1.1",
