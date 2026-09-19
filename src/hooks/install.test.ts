@@ -1,13 +1,15 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   areHooksInstalled,
   computeInstalledSettings,
   eventsToInstall,
   formatDiff,
+  HOOK_FILES,
   installedEvents,
   installHooks,
 } from "./install.js";
@@ -220,12 +222,16 @@ describe("installHooks", () => {
   let dir: string;
   let settingsPath: string;
   let backupPath: string;
-  const scriptPath = "/opt/claude-profiler/dist/hooks/hook-script.js";
+  let hookDir: string;
+  let hookSourceDir: string;
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "claude-profiler-install-"));
     settingsPath = join(dir, "settings.json");
     backupPath = join(dir, "backup.json");
+    hookDir = join(dir, "profiler", "hooks");
+    hookSourceDir = join(dir, "package-dist");
+    await writeHookSources(hookSourceDir, "v1");
   });
 
   afterEach(async () => {
@@ -238,7 +244,8 @@ describe("installHooks", () => {
     const result = await installHooks({
       settingsPath,
       backupPath,
-      scriptPath,
+      hookDir,
+      hookSourceDir,
       confirm: () => false,
       stdout: () => {},
     });
@@ -255,7 +262,8 @@ describe("installHooks", () => {
     const result = await installHooks({
       settingsPath,
       backupPath,
-      scriptPath,
+      hookDir,
+      hookSourceDir,
       confirm: () => true,
       stdout: () => {},
     });
@@ -284,14 +292,16 @@ describe("installHooks", () => {
     await installHooks({
       settingsPath,
       backupPath,
-      scriptPath,
+      hookDir,
+      hookSourceDir,
       confirm: () => true,
       stdout: () => {},
     });
     const second = await installHooks({
       settingsPath,
       backupPath,
-      scriptPath,
+      hookDir,
+      hookSourceDir,
       streamTiming: true,
       confirm: () => true,
       stdout: () => {},
@@ -309,7 +319,8 @@ describe("installHooks", () => {
     const result = await installHooks({
       settingsPath,
       backupPath,
-      scriptPath,
+      hookDir,
+      hookSourceDir,
       confirm: () => true,
       stdout: () => {},
     });
@@ -322,7 +333,8 @@ describe("installHooks", () => {
     const result = await installHooks({
       settingsPath,
       backupPath,
-      scriptPath,
+      hookDir,
+      hookSourceDir,
       confirm: () => true,
       stdout: () => {},
     });
@@ -334,13 +346,14 @@ describe("installHooks", () => {
 
   it("does nothing and reports already-installed on a second run", async () => {
     await writeFile(settingsPath, "{}\n");
-    await installHooks({ settingsPath, backupPath, scriptPath, confirm: () => true, stdout: () => {} });
+    await installHooks({ settingsPath, backupPath, hookDir, hookSourceDir, confirm: () => true, stdout: () => {} });
     const afterFirst = await readFile(settingsPath, "utf8");
 
     const second = await installHooks({
       settingsPath,
       backupPath,
-      scriptPath,
+      hookDir,
+      hookSourceDir,
       confirm: () => {
         throw new Error("must not prompt again once already installed");
       },
@@ -350,4 +363,92 @@ describe("installHooks", () => {
     expect(second.status).toBe("already-installed");
     expect(await readFile(settingsPath, "utf8")).toBe(afterFirst);
   });
+
+  it("deploys the hook script and points settings.json at the deployed copy", async () => {
+    await installHooks({ settingsPath, backupPath, hookDir, hookSourceDir, confirm: () => true, stdout: () => {} });
+
+    for (const file of HOOK_FILES) {
+      expect(await readFile(join(hookDir, file), "utf8")).toBe(`// ${file} v1\n`);
+    }
+    expect(JSON.parse(await readFile(join(hookDir, "package.json"), "utf8"))).toEqual({ type: "module" });
+    const written = JSON.parse(await readFile(settingsPath, "utf8")) as { hooks?: Record<string, unknown> };
+    const command = entries(written, "PreToolUse")[0]?.hooks[0]?.command;
+    expect(command).toBe(`node ${JSON.stringify(join(hookDir, "hook-script.js"))}`);
+  });
+
+  it("refreshes the deployed script on a re-run even when settings need no change", async () => {
+    await installHooks({ settingsPath, backupPath, hookDir, hookSourceDir, confirm: () => true, stdout: () => {} });
+    await writeHookSources(hookSourceDir, "v2");
+
+    const second = await installHooks({ settingsPath, backupPath, hookDir, hookSourceDir, stdout: () => {} });
+
+    expect(second.status).toBe("already-installed");
+    expect(await readFile(join(hookDir, "hook-script.js"), "utf8")).toBe("// hook-script.js v2\n");
+  });
+
+  it("deploys nothing when the install is aborted", async () => {
+    await installHooks({ settingsPath, backupPath, hookDir, hookSourceDir, confirm: () => false, stdout: () => {} });
+    expect(existsSync(hookDir)).toBe(false);
+  });
 });
+
+describe("legacy installs pointing into the package", () => {
+  const scriptPath = "/home/me/.claude/profiler/hooks/hook-script.js";
+  const legacy = (path: string) => `node ${JSON.stringify(path)}`;
+  const npxCommand = legacy("/home/me/.npm/_npx/0a1b2c/node_modules/claude-profiler/dist/hooks/hook-script.js");
+  const globalCommand = legacy("/usr/local/lib/node_modules/claude-profiler/dist/hooks/hook-script.js");
+
+  it("rewrites an npx-cache entry to the deployed path instead of adding a second one", () => {
+    const hooks = { PreToolUse: [{ matcher: "*", hooks: [{ type: "command", command: npxCommand, async: true }] }] };
+
+    const { next, updatedEvents } = computeInstalledSettings({ hooks }, scriptPath);
+
+    expect(updatedEvents).toContain("PreToolUse");
+    expect(entries(next, "PreToolUse")).toEqual([
+      { matcher: "*", hooks: [{ type: "command", command: legacy(scriptPath), async: true }] },
+    ]);
+    expect(installedEvents({ hooks }, scriptPath)).toEqual(["PreToolUse"]);
+  });
+
+  it("collapses legacy and current entries on one event into a single one", () => {
+    const current = computeInstalledSettings({}, scriptPath).next;
+    const stop = [...entries(current, "Stop"), { hooks: [{ type: "command", command: globalCommand }] }];
+
+    const { next } = computeInstalledSettings({ hooks: { ...current.hooks, Stop: stop } }, scriptPath);
+
+    expect(entries(next, "Stop")).toEqual([{ hooks: [{ type: "command", command: legacy(scriptPath) }] }]);
+    expect(computeInstalledSettings(next, scriptPath).alreadyInstalled).toBe(true);
+  });
+
+  it("leaves a foreign hook-script.js from another tool alone", () => {
+    const foreign = legacy("/opt/other-tool/dist/hooks/hook-script.js");
+    const hooks = { Stop: [{ hooks: [{ type: "command", command: foreign }] }] };
+
+    const { next } = computeInstalledSettings({ hooks }, scriptPath);
+
+    expect(entries(next, "Stop")).toHaveLength(2);
+    expect(entries(next, "Stop")[0]?.hooks[0]?.command).toBe(foreign);
+  });
+});
+
+describe("HOOK_FILES", () => {
+  it("lists every local module the hook script reaches", async () => {
+    const here = fileURLToPath(new URL(".", import.meta.url));
+    const reached = new Set<string>();
+    const pending = ["hook-script.js"];
+    while (pending.length > 0) {
+      const file = pending.pop()!;
+      if (reached.has(file)) continue;
+      reached.add(file);
+      const source = await readFile(join(here, file.replace(/\.js$/, ".ts")), "utf8");
+      for (const [, spec] of source.matchAll(/from "(\.[^"]+)"/g)) pending.push(spec!.replace(/^\.\//, ""));
+    }
+    expect([...reached].sort()).toEqual([...HOOK_FILES].sort());
+  });
+});
+
+/** Stand-ins for the compiled hook files, tagged so a test can tell copies apart. */
+async function writeHookSources(dir: string, tag: string): Promise<void> {
+  await mkdir(dir, { recursive: true });
+  for (const file of HOOK_FILES) await writeFile(join(dir, file), `// ${file} ${tag}\n`);
+}

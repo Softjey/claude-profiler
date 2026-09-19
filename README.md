@@ -68,11 +68,16 @@ confirmation. It subscribes to 20 hook events — tool timing and permission pro
 session start/end, subagent start/stop, compaction, model switches and instruction
 loads — each appending one line to `~/.claude/profiler/<sessionId>.jsonl`.
 
+The hook script is copied to `~/.claude/profiler/hooks/` and the hooks point at that copy,
+not into the package, so they keep working after `npx` clears its cache or a global install
+moves with your Node version. `uninstall-hooks` removes the copy.
+
 Hooks only help sessions started *after* you install them; existing transcripts stay on
-derived timings. Re-running `install-hooks` after an upgrade adds any newly subscribed
-events without duplicating the ones already there, and leaves your original settings
-backup intact so `uninstall-hooks` still restores the file as it was before the profiler
-ever touched it.
+derived timings. Re-running `install-hooks` after an upgrade refreshes the copied script,
+adds any newly subscribed events without duplicating the ones already there, and leaves
+your original settings backup intact so `uninstall-hooks` still restores the file as it
+was before the profiler ever touched it. Hooks from releases that pointed into the
+package directly are moved over to the copy on that re-run.
 
 **What it costs.** Each hook event spawns a short-lived Node process, measured at ~35ms
 (p50, n=25) on an M-series Mac. `--stream-timing` adds `MessageDisplay`, which fires once

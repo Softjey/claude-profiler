@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -65,8 +65,40 @@ export function defaultBackupPath(): string {
   return join(homedir(), ".claude", "profiler", "hooks-install-backup.json");
 }
 
-export function resolveHookScriptPath(): string {
-  return fileURLToPath(new URL("./hook-script.js", import.meta.url));
+/**
+ * Where the hook script is deployed and what settings.json points at. A path
+ * outside the package on purpose: a package run through `npx` lives in a cache
+ * that is evicted and renamed on every new version, and a global install moves
+ * with the Node version, so a hook pointing into either breaks without notice.
+ */
+export function defaultHookDir(): string {
+  return join(homedir(), ".claude", "profiler", "hooks");
+}
+
+export function resolveHookScriptPath(hookDir: string = defaultHookDir()): string {
+  return join(hookDir, "hook-script.js");
+}
+
+/** The compiled hook files shipped with this package, next to this module. */
+export function bundledHookDir(): string {
+  return dirname(fileURLToPath(import.meta.url));
+}
+
+/**
+ * Everything hook-script.js needs at runtime. It must stay self-contained:
+ * install.test.ts fails if it grows an import of a module not listed here.
+ */
+export const HOOK_FILES = ["hook-script.js", "records.js"] as const;
+
+/**
+ * Copies the hook files into `hookDir`, overwriting an older copy so a
+ * re-install after an upgrade also refreshes the script. The `package.json`
+ * marks the copies as ES modules, which a bare directory would not.
+ */
+export function deployHookScript(hookDir: string = defaultHookDir(), sourceDir: string = bundledHookDir()): void {
+  mkdirSync(hookDir, { recursive: true });
+  for (const file of HOOK_FILES) copyFileSync(join(sourceDir, file), join(hookDir, file));
+  writeFileSync(join(hookDir, "package.json"), '{ "type": "module" }\n');
 }
 
 /**
@@ -124,8 +156,20 @@ function hookCommand(scriptPath: string): string {
   return `node ${JSON.stringify(scriptPath)}`;
 }
 
+/**
+ * Releases before the deployed copy pointed settings.json straight into the
+ * package — an npx cache, a global install, a checkout. Those commands are
+ * still ours, so an install rewrites them to the deployed path instead of
+ * adding a second entry beside them.
+ */
+const LEGACY_COMMAND = /^node ".*claude-profiler[\\/]+dist[\\/]+hooks[\\/]+hook-script\.js"$/;
+
+function isProfilerCommand(command: string, scriptPath: string): boolean {
+  return command === hookCommand(scriptPath) || LEGACY_COMMAND.test(command);
+}
+
 function isProfilerEntry(entry: HookEntry, scriptPath: string): boolean {
-  return Array.isArray(entry?.hooks) && entry.hooks.some((h) => h.command === hookCommand(scriptPath));
+  return Array.isArray(entry?.hooks) && entry.hooks.some((h) => isProfilerCommand(h.command, scriptPath));
 }
 
 function commandFor(event: SidecarEvent, scriptPath: string): HookCommand {
@@ -139,22 +183,40 @@ function entryFor(event: SidecarEvent, scriptPath: string): HookEntry {
   return TOOL_MATCHED_EVENTS.has(event) ? { matcher: "*", hooks } : { hooks };
 }
 
-/** Our command inside an entry, rewritten to the current shape; foreign commands untouched. */
-function upgradeEntry(entry: HookEntry, event: SidecarEvent, scriptPath: string): HookEntry {
+/**
+ * An event's entries with our commands rewritten to the current shape and
+ * path, and all but the first of them dropped — a legacy entry next to a
+ * current one would otherwise record every event twice. Foreign commands are
+ * untouched; an entry left with no command at all goes.
+ */
+function upgradeEntries(entries: HookEntry[], event: SidecarEvent, scriptPath: string): HookEntry[] {
   const desired = commandFor(event, scriptPath);
-  return {
-    ...entry,
-    hooks: entry.hooks.map((h) => {
-      if (h.command !== desired.command) return h;
-      const { async: _previous, ...rest } = h;
-      return { ...rest, ...desired };
-    }),
-  };
+  let kept = false;
+  const upgraded: HookEntry[] = [];
+  for (const entry of entries) {
+    if (!isProfilerEntry(entry, scriptPath)) {
+      upgraded.push(entry);
+      continue;
+    }
+    const hooks: HookCommand[] = [];
+    for (const h of entry.hooks) {
+      if (!isProfilerCommand(h.command, scriptPath)) {
+        hooks.push(h);
+      } else if (!kept) {
+        const { async: _previous, ...rest } = h;
+        hooks.push({ ...rest, ...desired });
+        kept = true;
+      }
+    }
+    if (hooks.length > 0) upgraded.push({ ...entry, hooks });
+  }
+  return upgraded;
 }
 
-function isCurrentEntry(entry: HookEntry, event: SidecarEvent, scriptPath: string): boolean {
+function areCurrentEntries(entries: HookEntry[], event: SidecarEvent, scriptPath: string): boolean {
   const desired = commandFor(event, scriptPath);
-  return entry.hooks.every((h) => h.command !== desired.command || h.async === desired.async);
+  const ours = entries.flatMap((e) => e.hooks.filter((h) => isProfilerCommand(h.command, scriptPath)));
+  return ours.length === 1 && ours[0]!.command === desired.command && ours[0]!.async === desired.async;
 }
 
 /**
@@ -201,8 +263,8 @@ export function computeInstalledSettings(
       if (!events.includes(event)) continue;
       nextHooks[event] = [...entries, entryFor(event, scriptPath)];
       addedEvents.push(event);
-    } else if (!ours.every((e) => isCurrentEntry(e, event, scriptPath))) {
-      nextHooks[event] = entries.map((e) => (isProfilerEntry(e, scriptPath) ? upgradeEntry(e, event, scriptPath) : e));
+    } else if (!areCurrentEntries(entries, event, scriptPath)) {
+      nextHooks[event] = upgradeEntries(entries, event, scriptPath);
       updatedEvents.push(event);
     }
   }
@@ -211,7 +273,7 @@ export function computeInstalledSettings(
     const entries = entriesOf(event);
     if (!entries.some((e) => isProfilerEntry(e, scriptPath))) continue;
     const kept = entries
-      .map((e) => ({ ...e, hooks: e.hooks.filter((h) => h.command !== hookCommand(scriptPath)) }))
+      .map((e) => ({ ...e, hooks: e.hooks.filter((h) => !isProfilerCommand(h.command, scriptPath)) }))
       .filter((e) => e.hooks.length > 0);
     if (kept.length > 0) nextHooks[event] = kept;
     else delete nextHooks[event];
@@ -283,7 +345,10 @@ async function defaultConfirm(): Promise<boolean> {
 export interface InstallOptions {
   settingsPath?: string;
   backupPath?: string;
-  scriptPath?: string;
+  /** Where the hook script is deployed; settings.json points at the copy in it. */
+  hookDir?: string;
+  /** Where the compiled hook files are copied from. */
+  hookSourceDir?: string;
   /** Adds the high-volume `MessageDisplay` subscription. */
   streamTiming?: boolean;
   confirm?: (diffText: string) => Promise<boolean> | boolean;
@@ -304,7 +369,9 @@ export interface InstallResult {
 export async function installHooks(options: InstallOptions = {}): Promise<InstallResult> {
   const settingsPath = options.settingsPath ?? defaultSettingsPath();
   const backupPath = options.backupPath ?? defaultBackupPath();
-  const scriptPath = options.scriptPath ?? resolveHookScriptPath();
+  const hookDir = options.hookDir ?? defaultHookDir();
+  const scriptPath = resolveHookScriptPath(hookDir);
+  const deploy = () => deployHookScript(hookDir, options.hookSourceDir);
   const stdout = options.stdout ?? ((s: string) => process.stdout.write(s));
   const confirm = options.confirm ?? defaultConfirm;
   const events = eventsToInstall(options.streamTiming ?? false);
@@ -319,9 +386,10 @@ export async function installHooks(options: InstallOptions = {}): Promise<Instal
   const changes = { addedEvents, updatedEvents, removedEvents };
 
   if (alreadyInstalled) {
+    deploy();
     return {
       status: "already-installed",
-      message: `claude-profiler hooks are already installed (${before.length} events).\n`,
+      message: `claude-profiler hooks are already installed (${before.length} events); hook script refreshed in ${hookDir}\n`,
       ...changes,
     };
   }
@@ -353,6 +421,8 @@ export async function installHooks(options: InstallOptions = {}): Promise<Instal
     writeFileSync(backupPath, JSON.stringify(backup));
   }
 
+  // The script first, so settings.json never points at a file not there yet.
+  deploy();
   mkdirSync(dirname(settingsPath), { recursive: true });
   writeFileSync(settingsPath, nextText);
 
@@ -370,6 +440,7 @@ export async function installHooks(options: InstallOptions = {}): Promise<Instal
   const backupNote = upgrade
     ? `Pre-existing backup at ${backupPath} left untouched, so uninstall still restores your original settings.\n`
     : `Original backed up to ${backupPath}\n`;
+  const scriptNote = `Hook script deployed to ${hookDir}\n`;
 
-  return { status: "installed", message: summary + backupNote, ...changes };
+  return { status: "installed", message: summary + scriptNote + backupNote, ...changes };
 }
