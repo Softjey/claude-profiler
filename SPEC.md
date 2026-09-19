@@ -179,7 +179,7 @@ Open source from day one. No telemetry, no network calls in v1, nothing leaves t
   and, on explicit `install-hooks`, `settings.json`. Zero network calls. Transcripts
   contain source code and prompts — the artifact stays local and is never uploaded.
 - **Reliability:** no crash on any file in a 719-file corpus. A corpus smoke test enforces this.
-- **Compatibility:** Node 20+.
+- **Compatibility:** Node 22+.
 
 ## Data model — JSON artifact (schemaVersion 0.2)
 
