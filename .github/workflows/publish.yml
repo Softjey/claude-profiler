@@ -45,8 +45,18 @@ jobs:
             exit 1
           fi
 
+      # A version published by hand — the first one has to be, before a trusted
+      # publisher can be attached to the package — still gets its release.
+      - name: Check whether this version is already on npm
+        id: registry
+        run: |
+          if npm view "$(node -p 'require("./package.json").name')@${GITHUB_REF_NAME#v}" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          fi
+
       # prepublishOnly runs `pnpm verify` (build + tests) before anything is uploaded.
-      - run: npm publish
+      - if: steps.registry.outputs.published != 'true'
+        run: npm publish
 
       - name: Create GitHub release
         env:
