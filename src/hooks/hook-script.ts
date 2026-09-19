@@ -14,6 +14,7 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   isSidecarEvent,
   PREVIEW_LIMIT,
@@ -433,7 +434,11 @@ export async function main(): Promise<void> {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Compared as URLs, not by string-building one: `import.meta.url` percent-encodes
+// spaces and non-ASCII characters, so a home directory with either would
+// otherwise never match and every hook would silently do nothing.
+const entry = process.argv[1];
+if (entry !== undefined && import.meta.url === pathToFileURL(entry).href) {
   main()
     .catch(() => {})
     .finally(() => process.exit(0));
