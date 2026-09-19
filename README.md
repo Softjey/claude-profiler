@@ -1,6 +1,15 @@
 # claude-profiler
 
+[![npm](https://img.shields.io/npm/v/claude-profiler)](https://www.npmjs.com/package/claude-profiler)
+[![CI](https://github.com/Softjey/claude-profiler/actions/workflows/ci.yml/badge.svg)](https://github.com/Softjey/claude-profiler/actions/workflows/ci.yml)
+[![node](https://img.shields.io/node/v/claude-profiler)](package.json)
+[![license](https://img.shields.io/npm/l/claude-profiler)](LICENSE)
+
 Profile a Claude Code session transcript: see where the time went, per tool and per turn.
+
+```sh
+npx claude-profiler "the chat title or a session id"
+```
 
 A Claude Code session can run for hours and cost tens of dollars, and there's no built-in
 way to find out where that time actually went. `claude-profiler` reads the transcript
@@ -16,6 +25,38 @@ cold session cost to re-cache.
 
 It answers one question — **where did the time go** — and nothing else. It presents
 measurements, not advice.
+
+## What it looks like
+
+An example render of the Overview tab — the time split and the tool table it opens on.
+Not a captured screenshot, but the layout you'll actually see:
+
+```
+[1/4] Overview  Timeline  Context  Hooks
+
+Model 42%  ████████████████░░░░░░░░░░░░░░░░░░░░░░  Tools+approvals 38%  You 12%  Unaccounted 8%
+
+Tool          Calls   Total       Median    Outliers
+Bash          61      12m 04s     6.2s      3
+Edit          38      3m 51s      2.1s      0
+Read          29      1m 40s      1.8s      0
+Task          4       9m 12s      1m 58s    1
+
+↑↓ select · ⏎ drill in · Esc back · ⇥ tabs · q quit
+```
+
+## Quick start
+
+Needs Node.js 22+ and a machine where you use [Claude Code](https://claude.com/claude-code) —
+it reads the transcripts Claude Code already keeps. Nothing to configure.
+
+```sh
+npx claude-profiler "fix flaky login test"   # a chat's title or first message
+npx claude-profiler 3f2a9c1e                 # or a session id prefix
+
+npm install -g claude-profiler               # optional: install it, get the `cprof` alias
+claude-profiler install-hooks                # optional: exact timings for future sessions
+```
 
 ## Usage
 
@@ -90,25 +131,6 @@ inputs, tool results, compaction summaries and streamed message text are reduced
 counts before anything is written. Error and permission-denial reasons are the sole
 exception, truncated to 200 characters, because "which failure" is the whole point of the
 retry-tax view.
-
-### Example: the Overview tab
-
-Below is an example render of the Overview tab — the time split and the tool table it
-opens on — not a captured screenshot, but the layout you'll actually see:
-
-```
-[1/4] Overview  Timeline  Context  Hooks
-
-Model 42%  ████████████████░░░░░░░░░░░░░░░░░░░░░░  Tools+approvals 38%  You 12%  Unaccounted 8%
-
-Tool          Calls   Total       Median    Outliers
-Bash          61      12m 04s     6.2s      3
-Edit          38      3m 51s      2.1s      0
-Read          29      1m 40s      1.8s      0
-Task          4       9m 12s      1m 58s    1
-
-↑↓ select · ⏎ drill in · Esc back · ⇥ tabs · q quit
-```
 
 ### Example: inside the Model bucket
 
