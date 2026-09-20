@@ -1,0 +1,4 @@
+allowBuilds:
+  # esbuild's postinstall only double-checks its platform binary, which the
+  # optional @esbuild/* dependency already provides.
+  esbuild: false
