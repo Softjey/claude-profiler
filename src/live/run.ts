@@ -37,6 +37,14 @@ export interface RunLiveOptions {
  * when stdin closes, so the collector never outlives the app that spawned it.
  */
 export async function runLive({ once, write = (line) => process.stdout.write(line) }: RunLiveOptions): Promise<number> {
+  // A consumer that goes away mid-write (a pipe closed by `head`, an app that
+  // crashed) makes stdout emit EPIPE, which is an ordinary end of run for a
+  // stream like this — not a crash worth a stack trace.
+  process.stdout.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EPIPE") process.exit(0);
+    throw err;
+  });
+
   const collector = new LiveCollector({ sampleProcs: samplePs });
   const emit = (message: LiveMessage) => write(`${JSON.stringify(message)}\n`);
 
