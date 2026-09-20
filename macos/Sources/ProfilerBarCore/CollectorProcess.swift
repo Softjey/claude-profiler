@@ -80,6 +80,45 @@ public final class CollectorProcess {
         return buffer.append(data + Data("\n".utf8)).lazy.compactMap(LiveMessage.decode).first
     }
 
+    /// Runs the collector, asks for one session's profile and waits for it.
+    /// Used by `--render-png`, which needs real data without a live app.
+    public static func collectProfileOnce(command: CollectorCommand, id: String, timeout: TimeInterval = 30) throws -> Profile? {
+        let process = Process()
+        process.executableURL = command.executable
+        process.arguments = command.arguments()
+        let stdout = Pipe()
+        let stdin = Pipe()
+        process.standardOutput = stdout
+        process.standardInput = stdin
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        defer {
+            try? stdin.fileHandleForWriting.close()
+            process.terminate()
+        }
+
+        let escaped = id.replacingOccurrences(of: "\"", with: "\\\"")
+        try stdin.fileHandleForWriting.write(contentsOf: Data(#"{"cmd":"profile","id":"\#(escaped)"}\#n"#.utf8))
+
+        var buffer = LineBuffer()
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let chunk = stdout.fileHandleForReading.availableData
+            if chunk.isEmpty { break }
+            for line in buffer.append(chunk) {
+                switch LiveMessage.decode(line) {
+                case .profile(_, let profile):
+                    return profile
+                case .profileError(_, let message):
+                    throw NSError(domain: "cprof", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+                default:
+                    continue
+                }
+            }
+        }
+        return nil
+    }
+
     public var isRunning: Bool { process?.isRunning ?? false }
 
     public func start() throws {
@@ -131,6 +170,12 @@ public final class CollectorProcess {
     /// Polling interval; the collector clamps it to 250 ms … 60 s.
     public func setRate(milliseconds: Int) {
         send(#"{"cmd":"rate","ms":\#(milliseconds)}"#)
+    }
+
+    /// Asks for one session's full profile; the answer arrives on `onMessage`.
+    public func requestProfile(id: String) {
+        let escaped = id.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        send(#"{"cmd":"profile","id":"\#(escaped)"}"#)
     }
 
     public func refresh() {

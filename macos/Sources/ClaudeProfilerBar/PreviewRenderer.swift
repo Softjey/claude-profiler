@@ -2,9 +2,9 @@ import AppKit
 import ProfilerBarCore
 import SwiftUI
 
-/// `ClaudeProfilerBar --render-png <path> [--detail] [--dark]`: renders the
-/// popover (or the first session's detail window) from one live snapshot to a
-/// PNG and exits — for checking a UI change and for README screenshots
+/// `ClaudeProfilerBar --render-png <path> [--detail] [--tab <name>] [--dark]`:
+/// renders the popover, or a session's detail tab, from real collector data
+/// to a PNG and exits — for checking a UI change and for README screenshots
 /// without clicking through the menu bar.
 @MainActor
 enum PreviewRenderer {
@@ -18,17 +18,34 @@ enum PreviewRenderer {
             FileHandle.standardError.write(Data("render: the collector produced no snapshot\n".utf8))
             exit(1)
         }
-        let store = LiveStore(preview: snapshot)
+        let wantsDetail = arguments.contains("--detail") || arguments.contains("--tab")
+        let session = snapshot.sessions.first { $0.state.isLive } ?? snapshot.sessions.first
 
         let view: AnyView
-        if arguments.contains("--detail"), let first = snapshot.sessions.first(where: { $0.state.isLive }) ?? snapshot.sessions.first {
-            view = AnyView(SessionDetailView(sessionId: first.id).frame(width: 560, height: 600))
-        } else {
-            view = AnyView(PopoverView())
+        if wantsDetail, let session {
+            let profile = try? CollectorProcess.collectProfileOnce(command: CollectorCommand.resolve(), id: session.id)
+            if profile == nil {
+                FileHandle.standardError.write(Data("render: no profile came back for \(session.id)\n".utf8))
+                exit(1)
+            }
+            let store = LiveStore(preview: snapshot, profile: profile.map { (session.id, $0) })
+            var detail = SessionDetailView(sessionId: session.id)
+            if let flag = arguments.firstIndex(of: "--tab"), flag + 1 < arguments.count,
+               let tab = SessionDetailView.Tab(rawValue: arguments[flag + 1])
+            {
+                detail.initialTab = tab
+            }
+            return render(AnyView(detail.frame(width: 900, height: 680).environment(store)), to: path, dark: dark)
         }
 
+        let store = LiveStore(preview: snapshot)
+        view = AnyView(PopoverView())
+
+        return render(AnyView(view.environment(store)), to: path, dark: dark)
+    }
+
+    private static func render(_ view: AnyView, to path: String, dark: Bool) -> Bool {
         let content = view
-            .environment(store)
             .environment(\.colorScheme, dark ? .dark : .light)
             .background(dark ? Color(white: 0.16) : Color(white: 0.97))
 

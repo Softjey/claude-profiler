@@ -72,6 +72,21 @@ private let snapshotLine = #"""
     #expect(Format.duration(seconds: 172_800) == "2d")
 }
 
+@Test func formatsMillisecondsBytesAndPercent() {
+    #expect(Format.ms(240) == "240ms")
+    #expect(Format.ms(3_542) == "3.5s")
+    #expect(Format.ms(80_000) == "1m 20s")
+    #expect(Format.ms(3_900_000) == "1h 5m")
+    #expect(Format.ms(42_000) == "42s")
+    #expect(Format.ms(120_000) == "2m")
+    #expect(Format.bytes(820) == "820 B")
+    #expect(Format.bytes(819_043) == "800 KB")
+    #expect(Format.bytes(5_400_000) == "5.1 MB")
+    #expect(Format.percent(ratio: 0.424) == "42%")
+    #expect(Format.percent(ratio: 0.0042) == "0.4%")
+    #expect(Format.percent(ratio: 0.0197) == "2.0%")
+}
+
 @Test func formatsModels() {
     #expect(Format.model("claude-opus-5") == "Opus 5")
     #expect(Format.model("claude-sonnet-4-5-20250929") == "Sonnet 4.5")
@@ -82,4 +97,17 @@ private let snapshotLine = #"""
 @Test func resolvesTheCollectorCommand() {
     #expect(CollectorCommand.resolve(environment: ["CPROF_LIVE": "node x.js"]) == .override("node x.js"))
     #expect(CollectorCommand.resolve(environment: [:]) == .loginShell)
+}
+
+/// Smoke test against a profile from a real session, the Swift side of
+/// `test/corpus.test.ts`: point `CPROF_PROFILE_JSON` at the output of
+/// `claude-profiler <session> --json --out <path>`. Skipped when unset, as
+/// in CI.
+@Test func decodesARealProfileArtifact() throws {
+    guard let path = ProcessInfo.processInfo.environment["CPROF_PROFILE_JSON"], !path.isEmpty else { return }
+    let data = try Data(contentsOf: URL(fileURLWithPath: path))
+    let profile = try JSONDecoder().decode(Profile.self, from: data)
+    #expect(profile.schemaVersion == "0.2")
+    #expect(profile.timeline.spanMs > 0)
+    #expect(!profile.session.sessionId.isEmpty)
 }

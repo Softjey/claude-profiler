@@ -31,6 +31,11 @@ struct SettingsView: View {
                 Picker("Show", selection: $menuBarStyle) {
                     ForEach(MenuBarStyle.allCases) { Text($0.label).tag($0) }
                 }
+                Text("""
+                macOS hides menu bar items when the bar runs out of room, without saying so.                 If the icon is missing, pick "Icon only", quit another menu bar app, or open                 the session window with: open -a "Claude Profiler"
+                """)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Section("Notifications") {

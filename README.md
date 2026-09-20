@@ -163,8 +163,33 @@ open "macos/build/Claude Profiler.app"
 The menu bar shows how many sessions are working and today's token total. The popover
 lists each session with its source, state, model, context size, tokens, CPU and memory,
 plus a tokens-per-minute sparkline and — with hooks installed — the tool running right
-now. Click a session for charts and a button that opens the full terminal profiler on it.
-Optional notifications fire when Claude finishes a long run or waits for approval.
+now. Optional notifications fire when Claude finishes a long run or waits for approval.
+
+Click a session and you get **everything the terminal UI has**, for that session, kept up
+to date as it runs — the app asks the collector for the same profile artifact the CLI
+builds, so no metric is computed twice:
+
+| Tab | What it shows |
+| --- | --- |
+| Overview | The Model / Tools / You / Idle / Unaccounted split, resumes, model time by phase and cause, the tool totals, the token mix |
+| Tools | The sortable tool table, and the selected tool's calls — or its command groups, for Bash |
+| Model | One row per API request: total, first block, output, thinking, tok/s, context, what caused it; rolled up by cause, model or effort |
+| Timeline | Turn by turn: your prompt, model time, tool time, tool count |
+| Context | Context size per request, output and thinking per request, session totals |
+| Hooks | Approval time, retry tax, parallel batches, what filled the context window, cache rewrites, lifecycle |
+| Subagents | Each subagent's own split and tools |
+
+**If you can't find the icon**, your menu bar is full: macOS drops the items that do not
+fit, silently, and a newly launched app goes to the back of the queue. The same window is
+always reachable without it:
+
+```sh
+open -a "Claude Profiler"   # opens the session list, icon or no icon
+```
+
+It also opens by itself on first launch. To win back space, quit another menu bar app, or
+set **Show → Icon only** in the app's settings. An app with long menus, such as VS Code,
+takes room from the same bar, so an item that is hidden there can reappear in Finder.
 
 What it reads, every one to five seconds:
 
@@ -198,7 +223,9 @@ claude-profiler live --once   # one snapshot, then exit
 
 Each line is a complete snapshot — a consumer never merges deltas. Send
 `{"cmd":"rate","ms":1000}` on stdin to change the polling interval, `{"cmd":"refresh"}`
-to force one now. The collector exits when its stdin closes, so it never outlives the app
+to force one now, or `{"cmd":"profile","id":"<session>"}` to get that session's full
+profile artifact back on the same stream — the object `--json` writes, rebuilt only once
+the transcript has grown. The collector exits when its stdin closes, so it never outlives the app
 that spawned it. The shapes are in [`src/live/protocol.ts`](src/live/protocol.ts).
 
 ## How to read the numbers
@@ -252,8 +279,12 @@ bundled one, and render a view to a PNG without clicking through the menu bar:
 ```sh
 export CPROF_LIVE="node $PWD/dist/live/main.js"
 swift run --package-path macos ClaudeProfilerBar
-macos/.build/debug/ClaudeProfilerBar --render-png popover.png [--detail] [--dark]
+macos/.build/debug/ClaudeProfilerBar --render-png shot.png [--tab tools] [--dark]
 ```
+
+`--render-png` draws the popover, or a detail tab with `--tab`, from real collector data.
+`CPROF_PROFILE_JSON=<a --json artifact> pnpm macos:test` additionally checks that the
+Swift models still decode a profile from one of your own sessions.
 
 `test/corpus.test.ts` runs against your real transcripts in `~/.claude/projects/` and is
 skipped when that directory doesn't exist, as in CI.

@@ -2,8 +2,13 @@ import ProfilerBarCore
 import SwiftUI
 
 struct PopoverView: View {
+    enum Chrome {
+        case popover
+        case window
+    }
+
+    var chrome: Chrome = .popover
     @Environment(LiveStore.self) private var store
-    @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
@@ -14,7 +19,8 @@ struct PopoverView: View {
             Divider()
             footer
         }
-        .frame(width: 400)
+        .frame(width: chrome == .popover ? 400 : nil)
+        .frame(minWidth: chrome == .window ? 380 : nil, minHeight: chrome == .window ? 320 : nil)
         .onAppear { store.beginWatching() }
         .onDisappear { store.endWatching() }
     }
@@ -98,16 +104,13 @@ struct PopoverView: View {
                 .padding(6)
             }
         }
-        .frame(maxHeight: 520)
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxHeight: chrome == .popover ? 520 : .infinity)
+        .fixedSize(horizontal: false, vertical: chrome == .popover)
     }
 
     private func row(_ session: LiveSession, now: Date) -> some View {
         SessionRow(session: session, now: now)
-            .onTapGesture {
-                openWindow(id: "session", value: session.id)
-                NSApp.activate()
-            }
+            .onTapGesture { store.openSessionWindow(id: session.id) }
             .contextMenu {
                 Button("Open in Profiler") { Actions.openInProfiler(session) }
                 Button("Reveal Transcript") { Actions.revealTranscript(session) }

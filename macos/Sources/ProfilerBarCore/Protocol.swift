@@ -101,12 +101,20 @@ public struct LiveSnapshot: Decodable, Equatable, Sendable {
 
 public enum LiveMessage: Equatable, Sendable {
     case snapshot(LiveSnapshot)
+    case profile(id: String, profile: Profile)
+    case profileError(id: String, message: String)
     case error(String)
 
     private struct Envelope: Decodable {
         let v: Int
         let type: String
+        let id: String?
         let message: String?
+    }
+
+    private struct ProfileEnvelope: Decodable {
+        let id: String
+        let profile: Profile
     }
 
     /// Nil for anything that is not a message this app understands — a
@@ -120,6 +128,16 @@ public enum LiveMessage: Equatable, Sendable {
         switch envelope.type {
         case "snapshot":
             return (try? decoder.decode(LiveSnapshot.self, from: line)).map(LiveMessage.snapshot)
+        case "profile":
+            guard let decoded = try? decoder.decode(ProfileEnvelope.self, from: line) else {
+                // A profile this version cannot decode is reported, not dropped:
+                // an empty detail window with no reason is worse than a message.
+                return envelope.id.map { .profileError(id: $0, message: "This profile could not be decoded") }
+            }
+            return .profile(id: decoded.id, profile: decoded.profile)
+        case "profile-error":
+            guard let id = envelope.id else { return nil }
+            return .profileError(id: id, message: envelope.message ?? "unknown error")
         case "error":
             return .error(envelope.message ?? "unknown error")
         default:

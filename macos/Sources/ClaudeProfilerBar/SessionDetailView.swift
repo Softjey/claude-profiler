@@ -1,131 +1,159 @@
-import Charts
 import ProfilerBarCore
 import SwiftUI
 
+/// One session in full: the live header from the snapshot stream, and below
+/// it the same tabs the terminal UI has, rendered from the same profile
+/// artifact the CLI builds.
 struct SessionDetailView: View {
     let sessionId: String
+    /// Set by `--render-png --tab <name>` so a screenshot can pick a tab.
+    var initialTab: Tab = .overview
     @Environment(LiveStore.self) private var store
+    @State private var tab: Tab?
+
+    enum Tab: String, CaseIterable, Identifiable {
+        case overview, tools, model, timeline, context, hooks, subagents
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .overview: "Overview"
+            case .tools: "Tools"
+            case .model: "Model"
+            case .timeline: "Timeline"
+            case .context: "Context"
+            case .hooks: "Hooks"
+            case .subagents: "Subagents"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .overview: "chart.pie"
+            case .tools: "wrench.and.screwdriver"
+            case .model: "brain"
+            case .timeline: "list.bullet.indent"
+            case .context: "chart.xyaxis.line"
+            case .hooks: "bolt"
+            case .subagents: "person.2"
+            }
+        }
+    }
 
     var body: some View {
-        Group {
-            if let session = store.session(id: sessionId) {
-                content(session)
-            } else {
-                VStack(spacing: 8) {
-                    Image(systemName: "questionmark.circle").font(.system(size: 28)).foregroundStyle(.tertiary)
-                    Text("This session is no longer in today's list.").foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+        VStack(spacing: 0) {
+            header
+            Divider()
+            body(for: store.profiles[sessionId])
         }
-        .frame(minWidth: 520, minHeight: 440)
-        .onAppear { store.beginWatching() }
-        .onDisappear { store.endWatching() }
+        .frame(minWidth: 720, minHeight: 520)
+        .navigationTitle(store.session(id: sessionId)?.displayTitle ?? "Session")
+        .onAppear {
+            store.beginWatching()
+            store.beginProfile(id: sessionId)
+        }
+        .onDisappear {
+            store.endWatching()
+            store.endProfile(id: sessionId)
+        }
     }
 
-    private func content(_ session: LiveSession) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                header(session)
-                metrics(session)
-                burnChart(session)
-                tokenBreakdown(session.tokens)
-                actions(session)
-            }
-            .padding(20)
-        }
-        .navigationTitle(session.displayTitle)
-    }
+    // MARK: Header
 
-    private func header(_ session: LiveSession) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+    @ViewBuilder
+    private var header: some View {
+        let live = store.session(id: sessionId)
+        let profile = loadedProfile
+
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                StateDot(state: session.state)
-                Text(session.state.label.capitalized).foregroundStyle(session.state.color)
-                SourceBadge(source: session.source)
-                if let activity = session.activity { ActivityText(activity: activity) }
+                if let live {
+                    StateDot(state: live.state)
+                    Text(live.state.label.capitalized).foregroundStyle(live.state.color)
+                    SourceBadge(source: live.source)
+                    if let activity = live.activity { ActivityText(activity: activity) }
+                }
+                Spacer()
+                Button {
+                    store.reloadProfile(id: sessionId)
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .help("Rebuild the profile now")
+                if let live {
+                    Button("Open in Profiler", systemImage: "terminal") { Actions.openInProfiler(live) }
+                        .buttonStyle(.borderless)
+                    Button("Reveal", systemImage: "doc.text.magnifyingglass") { Actions.revealTranscript(live) }
+                        .buttonStyle(.borderless)
+                        .disabled(live.transcriptPath == nil)
+                }
             }
             .font(.system(size: 12, weight: .medium))
-            Text(session.displayTitle).font(.title2.bold()).lineLimit(2)
-            if let cwd = session.cwd {
-                Text(cwd).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
-            }
-        }
-    }
 
-    private func metrics(_ session: LiveSession) -> some View {
-        Grid(alignment: .leading, horizontalSpacing: 28, verticalSpacing: 12) {
-            GridRow {
-                Metric(label: "Tokens (session)", value: Format.tokens(session.tokens.total))
-                Metric(label: "Tokens (today)", value: Format.tokens(session.tokensToday))
-                Metric(label: "Context", value: session.contextTokens.map(Format.tokens) ?? "—")
-                Metric(label: "Cost", value: session.costUsd.map(Format.usd) ?? "—")
-            }
-            GridRow {
-                Metric(label: "Model", value: session.model.map(Format.model) ?? "—")
-                Metric(label: "Subagents", value: "\(session.subagents)")
-                Metric(label: "CPU", value: session.cpuPct.map { "\(Int($0.rounded()))%" } ?? "—")
-                Metric(label: "Memory", value: session.rssMb.map { "\($0) MB" } ?? "—")
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
-    }
+            Text(live?.displayTitle ?? profile?.session.title ?? sessionId)
+                .font(.title3.bold())
+                .lineLimit(1)
 
-    private func burnChart(_ session: LiveSession) -> some View {
-        let count = session.burn.count
-        return VStack(alignment: .leading, spacing: 8) {
-            Text("Tokens per minute · last \(count) min").font(.headline)
-            Chart(Array(session.burn.enumerated()), id: \.offset) { index, value in
-                BarMark(x: .value("Minutes ago", index - count + 1), y: .value("Tokens", value))
-                    .foregroundStyle(Color.accentColor.gradient)
+            HStack(spacing: 24) {
+                if let profile {
+                    KeyValue(label: "Span", value: Format.ms(profile.timeline.spanMs))
+                    KeyValue(label: "Turns", value: "\(profile.session.turnCount)")
+                    KeyValue(label: "Requests", value: "\(profile.modelBreakdown.requests.count)")
+                    KeyValue(label: "Tokens", value: Format.tokens(profile.tokens.totals.total))
+                    KeyValue(label: "Cost", value: profile.cost.map { Format.usd($0.totalCostUSD) } ?? "—")
+                    KeyValue(label: "Model", value: profile.session.models.map(Format.model).joined(separator: ", "))
+                } else if let live {
+                    KeyValue(label: "Tokens", value: Format.tokens(live.tokens.total))
+                    KeyValue(label: "Context", value: live.contextTokens.map(Format.tokens) ?? "—")
+                }
+                if let live, live.state.isLive {
+                    KeyValue(label: "CPU", value: live.cpuPct.map { "\(Int($0.rounded()))%" } ?? "—")
+                    KeyValue(label: "Memory", value: live.rssMb.map { "\($0) MB" } ?? "—")
+                }
+                Spacer()
             }
-            .chartXAxis {
-                AxisMarks(values: .stride(by: 5)) { value in
-                    AxisGridLine()
-                    AxisValueLabel { if let minutes = value.as(Int.self) { Text(minutes == 0 ? "now" : "\(minutes)m") } }
+
+            Picker("", selection: Binding(get: { tab ?? initialTab }, set: { tab = $0 })) {
+                ForEach(Tab.allCases) { tab in
+                    Label(tab.label, systemImage: tab.symbol).tag(tab)
                 }
             }
-            .chartYAxis {
-                AxisMarks { value in
-                    AxisGridLine()
-                    AxisValueLabel { if let tokens = value.as(Int.self) { Text(Format.tokens(tokens)) } }
-                }
-            }
-            .frame(height: 140)
+            .pickerStyle(.segmented)
+            .labelsHidden()
         }
+        .padding(16)
     }
 
-    private func tokenBreakdown(_ tokens: LiveTokens) -> some View {
-        let parts: [(String, Int)] = [
-            ("Cache read", tokens.cacheRead),
-            ("Cache write", tokens.cacheCreate),
-            ("Input", tokens.input),
-            ("Output", tokens.output),
-        ]
-        return VStack(alignment: .leading, spacing: 8) {
-            Text("Where the tokens went").font(.headline)
-            Chart(parts, id: \.0) { name, value in
-                BarMark(x: .value("Tokens", value), y: .value("Kind", name))
-                    .foregroundStyle(by: .value("Kind", name))
-                    .annotation(position: .trailing) {
-                        Text(Format.tokens(value)).font(.system(size: 10)).foregroundStyle(.secondary)
-                    }
-            }
-            .chartLegend(.hidden)
-            .chartXAxis(.hidden)
-            .frame(height: 120)
-        }
+    private var loadedProfile: Profile? {
+        if case .loaded(let profile) = store.profiles[sessionId] { return profile }
+        return nil
     }
 
-    private func actions(_ session: LiveSession) -> some View {
-        HStack {
-            Button("Open in Profiler", systemImage: "chart.bar.doc.horizontal") { Actions.openInProfiler(session) }
-                .buttonStyle(.borderedProminent)
-            Button("Reveal Transcript", systemImage: "doc.text.magnifyingglass") { Actions.revealTranscript(session) }
-                .disabled(session.transcriptPath == nil)
-            Button("Copy ID", systemImage: "doc.on.doc") { Actions.copy(session.id) }
+    // MARK: Tabs
+
+    @ViewBuilder
+    private func body(for state: LiveStore.ProfileState?) -> some View {
+        switch state {
+        case .loaded(let profile):
+            switch tab ?? initialTab {
+            case .overview: OverviewTab(profile: profile)
+            case .tools: ToolsTab(profile: profile)
+            case .model: ModelTab(profile: profile)
+            case .timeline: TimelineTab(profile: profile)
+            case .context: ContextTab(profile: profile)
+            case .hooks: HooksTab(profile: profile)
+            case .subagents: SubagentsTab(profile: profile)
+            }
+        case .failed(let message):
+            EmptyTabNote(symbol: "exclamationmark.triangle", text: message)
+        default:
+            VStack(spacing: 10) {
+                ProgressView()
+                Text("Building the profile…").font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
