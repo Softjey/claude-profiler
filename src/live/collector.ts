@@ -1,6 +1,7 @@
 import { readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import { buildProfile, type Profile } from "../artifact/profile.js";
 import { areHooksInstalled } from "../hooks/install.js";
 import { defaultProfilerDir, sidecarPathFor } from "../hooks/hook-script.js";
 import { ActivityState } from "./activity.js";
@@ -21,6 +22,8 @@ import { addTokens, burnSeries, emptyTokens, TranscriptState } from "./transcrip
 const DISCOVERY_INTERVAL_MS = 10_000;
 
 export interface CollectorOptions {
+  /** Recorded in the artifact's `generator` block. */
+  generatorVersion?: string;
   projectsDir?: string;
   registryDir?: string;
   profilerDir?: string;
@@ -41,6 +44,8 @@ interface SessionTracker {
   subagents: Map<string, FileTracker>;
   sidecar: LineTail;
   activity: ActivityState;
+  /** Last built profile, reused while the transcript has not moved on. */
+  profile: { builtForLastAt: number | undefined; value: Profile } | undefined;
 }
 
 function localMidnight(now: number): number {
@@ -135,6 +140,38 @@ export class LiveCollector {
   }
 
   /**
+   * The full profile artifact for one session — what the terminal UI renders,
+   * built from the same `buildProfile` the CLI uses. Rebuilt only when the
+   * transcript has grown since the last build, because a busy session would
+   * otherwise re-parse its whole transcript on every request.
+   */
+  async profileFor(id: string): Promise<Profile> {
+    let tracker = this.trackers.get(id);
+    if (!tracker?.main) {
+      // A request can arrive before the first discovery pass, and a session
+      // older than today is never tracked at all — look it up on demand.
+      const found = this.findTranscript(id);
+      if (found === undefined) throw new Error(`No transcript for session ${id}`);
+      tracker = this.trackerFor(id);
+      tracker.main = { tail: new LineTail(found), state: new TranscriptState() };
+      this.advance(tracker);
+    }
+    const transcriptPath = tracker.main.tail.path;
+
+    const lastAt = tracker.main?.state.lastAt;
+    if (tracker.profile && tracker.profile.builtForLastAt === lastAt) return tracker.profile.value;
+
+    const value = await buildProfile({
+      sessionId: id,
+      transcriptPath,
+      generatorVersion: this.options.generatorVersion ?? "0.0.0",
+      profilerDir: this.profilerDir,
+    });
+    tracker.profile = { builtForLastAt: lastAt, value };
+    return value;
+  }
+
+  /**
    * Finds transcripts touched today (or belonging to a live session) and the
    * subagent transcripts under each. `agent-*.jsonl` at the project root is
    * the pre-2.1 subagent layout, not a session of its own.
@@ -170,6 +207,15 @@ export class LiveCollector {
     }
   }
 
+  /** The transcript file for a session id, anywhere under the projects tree. */
+  private findTranscript(id: string): string | undefined {
+    for (const project of listDir(this.projectsDir)) {
+      const candidate = join(this.projectsDir, project, `${id}.jsonl`);
+      if (mtimeOf(candidate) !== undefined) return candidate;
+    }
+    return undefined;
+  }
+
   private trackerFor(id: string): SessionTracker {
     let tracker = this.trackers.get(id);
     if (!tracker) {
@@ -179,6 +225,7 @@ export class LiveCollector {
         subagents: new Map(),
         sidecar: new LineTail(sidecarPathFor(id, this.profilerDir)),
         activity: new ActivityState(),
+        profile: undefined,
       };
       this.trackers.set(id, tracker);
     }

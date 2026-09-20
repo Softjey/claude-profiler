@@ -179,7 +179,7 @@ export async function run(
       printUsage(stderr);
       return 1;
     }
-    return runLive({ once: rest.includes("--once"), write: stdout });
+    return runLive({ once: rest.includes("--once"), version, write: stdout });
   }
 
   let args: CliArgs;

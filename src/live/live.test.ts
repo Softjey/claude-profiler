@@ -203,6 +203,12 @@ describe("parseCommand", () => {
     expect(parseCommand('{"cmd":"rate"}')).toBeNull();
     expect(parseCommand("nope")).toBeNull();
   });
+
+  it("accepts a profile request and rejects one without an id", () => {
+    expect(parseCommand('{"cmd":"profile","id":"live-1"}')).toEqual({ cmd: "profile", id: "live-1" });
+    expect(parseCommand('{"cmd":"profile","id":""}')).toBeNull();
+    expect(parseCommand('{"cmd":"profile"}')).toBeNull();
+  });
 });
 
 describe("LiveCollector", () => {
@@ -248,6 +254,7 @@ describe("LiveCollector", () => {
     );
 
     const collector = new LiveCollector({
+      generatorVersion: "9.9.9-test",
       projectsDir: projects,
       registryDir: registry,
       profilerDir: profiler,
@@ -289,6 +296,41 @@ describe("LiveCollector", () => {
     expect(done).toMatchObject({ source: "cli", pid: null, cpuPct: null, costUsd: 0.5 });
     expect(snapshot.today).toEqual({ tokens: 157, sessions: 2, costUsd: 0.5 });
     expect(snapshot.hooksInstalled).toBe(true);
+  });
+
+  it("builds a session's full profile and reuses it until the transcript grows", async () => {
+    const { collector, project } = setup();
+    await collector.collect();
+
+    const profile = await collector.profileFor("live-1");
+    expect(profile.session.sessionId).toBe("live-1");
+    expect(profile.session.turnCount).toBeGreaterThan(0);
+    expect(profile.timeline.spanMs).toBeGreaterThan(0);
+    expect(profile.generator.version).toBe("9.9.9-test");
+
+    // Same transcript, same object: a busy session must not re-parse per request.
+    expect(await collector.profileFor("live-1")).toBe(profile);
+
+    appendFileSync(
+      join(project, "live-1.jsonl"),
+      JSON.stringify(assistant("r4", 300_000, { output_tokens: 5 })) + "\n",
+    );
+    await collector.collect();
+    expect(await collector.profileFor("live-1")).not.toBe(profile);
+  });
+
+  it("rejects a profile request for a session it does not track", async () => {
+    const { collector } = setup();
+    await collector.collect();
+    await expect(collector.profileFor("nope-1")).rejects.toThrow(/No transcript/);
+  });
+
+  it("finds a transcript on demand, before the first collect", async () => {
+    const { collector } = setup();
+    // No collect() first: the app can ask for a profile the moment it starts.
+    const profile = await collector.profileFor("done-1");
+    expect(profile.session.sessionId).toBe("done-1");
+    expect(profile.cost?.totalCostUSD).toBe(0.5);
   });
 
   it("reads only what was appended since the last collect", async () => {

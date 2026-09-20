@@ -9,10 +9,13 @@ const MAX_RATE_MS = 60_000;
 
 export function parseCommand(line: string): LiveCommand | null {
   try {
-    const parsed = JSON.parse(line) as Partial<LiveCommand> & { ms?: unknown };
+    const parsed = JSON.parse(line) as Partial<LiveCommand> & { ms?: unknown; id?: unknown };
     if (parsed.cmd === "refresh") return { cmd: "refresh" };
     if (parsed.cmd === "rate" && typeof parsed.ms === "number" && Number.isFinite(parsed.ms)) {
       return { cmd: "rate", ms: Math.min(MAX_RATE_MS, Math.max(MIN_RATE_MS, parsed.ms)) };
+    }
+    if (parsed.cmd === "profile" && typeof parsed.id === "string" && parsed.id.length > 0) {
+      return { cmd: "profile", id: parsed.id };
     }
   } catch {
     // not a command
@@ -27,6 +30,8 @@ function fingerprint(message: LiveMessage): string {
 
 export interface RunLiveOptions {
   once: boolean;
+  /** Recorded in a profile artifact's `generator` block. */
+  version?: string;
   write?: (line: string) => void;
 }
 
@@ -36,7 +41,11 @@ export interface RunLiveOptions {
  * stdin (the menu bar app polls fast only while its popover is open). Exits
  * when stdin closes, so the collector never outlives the app that spawned it.
  */
-export async function runLive({ once, write = (line) => process.stdout.write(line) }: RunLiveOptions): Promise<number> {
+export async function runLive({
+  once,
+  version,
+  write = (line) => process.stdout.write(line),
+}: RunLiveOptions): Promise<number> {
   // A consumer that goes away mid-write (a pipe closed by `head`, an app that
   // crashed) makes stdout emit EPIPE, which is an ordinary end of run for a
   // stream like this — not a crash worth a stack trace.
@@ -45,7 +54,10 @@ export async function runLive({ once, write = (line) => process.stdout.write(lin
     throw err;
   });
 
-  const collector = new LiveCollector({ sampleProcs: samplePs });
+  const collector = new LiveCollector({
+    sampleProcs: samplePs,
+    ...(version === undefined ? {} : { generatorVersion: version }),
+  });
   const emit = (message: LiveMessage) => write(`${JSON.stringify(message)}\n`);
 
   if (once) {
@@ -78,12 +90,32 @@ export async function runLive({ once, write = (line) => process.stdout.write(lin
     }
   };
 
+  const sendProfile = async (id: string) => {
+    try {
+      const profile = await collector.profileFor(id);
+      emit({ v: LIVE_PROTOCOL_VERSION, type: "profile", at: Date.now(), id, profile });
+    } catch (err) {
+      emit({
+        v: LIVE_PROTOCOL_VERSION,
+        type: "profile-error",
+        at: Date.now(),
+        id,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
+
   return new Promise((resolve) => {
     const input = createInterface({ input: process.stdin });
     input.on("line", (line) => {
       const command = parseCommand(line);
-      if (command?.cmd === "rate") rateMs = command.ms;
-      if (command) void tick(true);
+      if (command === null) return;
+      if (command.cmd === "profile") {
+        void sendProfile(command.id);
+        return;
+      }
+      if (command.cmd === "rate") rateMs = command.ms;
+      void tick(true);
     });
     input.on("close", () => {
       stopped = true;

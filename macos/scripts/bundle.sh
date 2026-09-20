@@ -30,6 +30,7 @@ echo "› bundling the collector"
 (cd "$REPO_DIR" && pnpm exec esbuild src/live/main.ts \
   --bundle --platform=node --format=cjs --target=node22 \
   --log-level=warning --log-override:empty-import-meta=silent \
+  --define:PROFILER_VERSION="\"$VERSION\"" \
   --outfile="$BUILD_DIR/sea/live.cjs")
 
 cat > "$BUILD_DIR/sea/sea-config.json" <<EOF

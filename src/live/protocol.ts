@@ -8,6 +8,8 @@
  * restarted collector needs no handshake to resync.
  */
 
+import type { Profile } from "../artifact/profile.js";
+
 export const LIVE_PROTOCOL_VERSION = 1;
 
 /** Which Claude Code front end started the session, from the `entrypoint` field. */
@@ -73,6 +75,27 @@ export interface LiveSnapshot {
   sessions: LiveSession[];
 }
 
+/**
+ * The full profile artifact for one session — the same object `--json`
+ * writes, so the app shows exactly what the terminal UI shows, with no metric
+ * computed twice.
+ */
+export interface LiveProfile {
+  v: typeof LIVE_PROTOCOL_VERSION;
+  type: "profile";
+  at: number;
+  id: string;
+  profile: Profile;
+}
+
+export interface LiveProfileError {
+  v: typeof LIVE_PROTOCOL_VERSION;
+  type: "profile-error";
+  at: number;
+  id: string;
+  message: string;
+}
+
 export interface LiveError {
   v: typeof LIVE_PROTOCOL_VERSION;
   type: "error";
@@ -80,10 +103,13 @@ export interface LiveError {
   message: string;
 }
 
-export type LiveMessage = LiveSnapshot | LiveError;
+export type LiveMessage = LiveSnapshot | LiveProfile | LiveProfileError | LiveError;
 
 /** Commands the consumer may write to stdin, one JSON object per line. */
-export type LiveCommand = { cmd: "rate"; ms: number } | { cmd: "refresh" };
+export type LiveCommand =
+  | { cmd: "rate"; ms: number }
+  | { cmd: "refresh" }
+  | { cmd: "profile"; id: string };
 
 export const BURN_MINUTES = 30;
 
