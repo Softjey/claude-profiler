@@ -52,7 +52,7 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           python3 -m http.server 8765 --directory build/binary >/dev/null 2>&1 &
-          sleep 2
+          curl -sf --retry 20 --retry-delay 1 --retry-all-errors http://127.0.0.1:8765/checksums.txt >/dev/null
           CPROF_DOWNLOAD_BASE=http://127.0.0.1:8765 CPROF_INSTALL_DIR="$RUNNER_TEMP/bin" sh install.sh
           test "$("$RUNNER_TEMP/bin/cprof" --version)" = "$(node -p "require('./package.json').version")"
 
@@ -61,7 +61,10 @@ jobs:
         shell: pwsh
         run: |
           Start-Process python -ArgumentList '-m', 'http.server', '8765', '--directory', 'build/binary' -NoNewWindow
-          Start-Sleep -Seconds 2
+          foreach ($attempt in 1..20) {
+            try { Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8765/checksums.txt | Out-Null; break }
+            catch { Start-Sleep -Seconds 1 }
+          }
           $env:CPROF_DOWNLOAD_BASE = 'http://127.0.0.1:8765'
           $env:CPROF_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'bin'
           ./install.ps1

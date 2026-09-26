@@ -42,7 +42,8 @@ try {
   Invoke-WebRequest -UseBasicParsing -Uri "$base/checksums.txt" -OutFile (Join-Path $tmp 'checksums.txt')
 
   $expected = Get-Content (Join-Path $tmp 'checksums.txt') |
-    ForEach-Object { $sum, $name = -split $_; if ($name -eq $archive) { $sum } } |
+    # A `*` before the name is sha256sum's binary-mode marker.
+    ForEach-Object { $sum, $name = -split $_; if ($name -and $name.TrimStart('*') -eq $archive) { $sum } } |
     Select-Object -First 1
   if (-not $expected) { throw "$archive is not listed in checksums.txt" }
   $actual = (Get-FileHash -Algorithm SHA256 (Join-Path $tmp $archive)).Hash

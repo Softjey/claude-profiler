@@ -56,7 +56,8 @@ echo "Downloading $archive..."
 fetch "$base/$archive" "$tmp/$archive" || fail "could not download $base/$archive"
 fetch "$base/checksums.txt" "$tmp/checksums.txt" || fail "could not download $base/checksums.txt"
 
-expected="$(awk -v f="$archive" '$2 == f { print $1 }' "$tmp/checksums.txt")"
+# A `*` before the name is sha256sum's binary-mode marker.
+expected="$(awk -v f="$archive" '$2 == f || $2 == "*" f { print $1 }' "$tmp/checksums.txt")"
 [ -n "$expected" ] || fail "$archive is not listed in checksums.txt"
 if command -v sha256sum >/dev/null 2>&1; then
   actual="$(sha256sum "$tmp/$archive" | awk '{ print $1 }')"

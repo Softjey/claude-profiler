@@ -14,7 +14,7 @@ base="https://github.com/Softjey/claude-profiler/releases/download/v$version"
 
 sha() {
   local sum
-  sum="$(awk -v f="claude-profiler-$1.tar.gz" '$2 == f { print $1 }' "$checksums")"
+  sum="$(awk -v f="claude-profiler-$1.tar.gz" '$2 == f || $2 == "*" f { print $1 }' "$checksums")"
   if [[ -z "$sum" ]]; then
     echo "error: claude-profiler-$1.tar.gz is not in $checksums" >&2
     exit 1
