@@ -13,7 +13,28 @@ tools, how much was you. It reads the transcripts Claude Code already saves in
 npx claude-profiler "fix flaky login test"
 ```
 
-Requires Node.js 22+.
+## Install
+
+With Node.js 22+, run it through `npx` as above, or install it globally:
+
+```sh
+npm install -g claude-profiler
+```
+
+Without Node, or with an older one, use the standalone build. It is one executable that
+carries its own Node, for macOS and Linux on arm64 and x64:
+
+```sh
+brew install softjey/tap/claude-profiler
+# or
+curl -fsSL https://raw.githubusercontent.com/Softjey/claude-profiler/master/install.sh | sh
+```
+
+`install.sh` puts it in `~/.local/bin` (set `CPROF_INSTALL_DIR` to change that, or
+`CPROF_VERSION` to pin a release) and verifies its checksum. Running it again upgrades in
+place. You can also download an archive from the
+[releases](https://github.com/Softjey/claude-profiler/releases) page yourself. Both install
+it as `claude-profiler` and `cprof`.
 
 ## What it looks like
 
@@ -132,10 +153,16 @@ claude-profiler uninstall-hooks                 # restores your original setting
 
 - `install-hooks` shows the `~/.claude/settings.json` diff and asks for confirmation before
   writing it. It backs up your settings first.
-- The hook script is copied to `~/.claude/profiler/hooks/`, so it still works after `npx`
-  clears its cache.
-- Every hook event starts a short-lived Node process. `--stream-timing` fires many more
-  events, because it runs on each chunk of streamed output.
+- From npm, the hook script is copied to `~/.claude/profiler/hooks/`, so it still works
+  after `npx` clears its cache. The standalone build registers itself instead, as
+  `claude-profiler hook`, from where it is installed; for Homebrew that is the `opt` path,
+  which survives `brew upgrade`. Switching between the two and running `install-hooks`
+  again replaces the other one's entries.
+- Every hook event starts a short-lived process: about 25ms for the npm script and 60ms
+  for the standalone build, which loads the whole CLI. All but `Stop`, `StopFailure` and
+  `SessionEnd` run in the background, so Claude Code does not wait for them.
+  `--stream-timing` fires many more events, because it runs on each chunk of streamed
+  output.
 - Events are written to `~/.claude/profiler/<sessionId>.jsonl`, and only as **sizes and
   identifiers**. Prompts, tool inputs, tool results and message text are stored as byte
   counts. The one exception is error and permission-denial messages, which are kept but
@@ -188,7 +215,8 @@ your machine.
 
 ```sh
 pnpm install
-pnpm verify   # build + unit tests
+pnpm verify         # build + unit tests
+pnpm build:binary   # the standalone executable for this machine (needs Node >= 25.5)
 ```
 
 `test/corpus.test.ts` runs against your real transcripts in `~/.claude/projects/` and is

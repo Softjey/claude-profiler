@@ -22,3 +22,6 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify
+
+  binaries:
+    uses: ./.github/workflows/binaries.yml

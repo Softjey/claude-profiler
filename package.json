@@ -55,6 +55,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "verify": "pnpm run build && pnpm run test",
+    "build:binary": "scripts/build-binary.sh",
     "prepublishOnly": "pnpm verify"
   },
   "dependencies": {
@@ -64,6 +65,7 @@
   "devDependencies": {
     "@types/node": "^22.20.3",
     "@types/react": "^19.2.0",
+    "esbuild": "^0.28.2",
     "ink-testing-library": "^4.0.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.1"

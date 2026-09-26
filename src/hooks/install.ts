@@ -1,5 +1,6 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { isSea } from "node:sea";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
@@ -79,6 +80,43 @@ export function resolveHookScriptPath(hookDir: string = defaultHookDir()): strin
   return join(hookDir, "hook-script.js");
 }
 
+/**
+ * What settings.json runs for each hook event: the deployed script, under
+ * `node`, when this is the npm package; this very executable when it is the
+ * standalone build, which carries its own Node and needs none installed.
+ */
+export function defaultHookTarget(): string {
+  return isSea() ? stableExecutablePath(process.execPath) : resolveHookScriptPath();
+}
+
+/**
+ * `execPath` as a path that survives an upgrade. Homebrew runs a formula from
+ * a versioned keg — `<prefix>/Cellar/<name>/<version>/bin/…` — that the next
+ * `brew upgrade` deletes; its `<prefix>/opt/<name>` link always points at the
+ * current one. Any other location is where the user put the binary, and an
+ * upgrade replaces it in place.
+ */
+export function stableExecutablePath(execPath: string, exists: (path: string) => boolean = existsSync): string {
+  let real = execPath;
+  try {
+    real = realpathSync(execPath);
+  } catch {
+    // Keep the path as given.
+  }
+  const keg = /^(.*)[\\/]Cellar[\\/]([^\\/]+)[\\/][^\\/]+[\\/](.+)$/.exec(real);
+  const [, prefix, name, rest] = keg ?? [];
+  if (prefix !== undefined && name !== undefined && rest !== undefined) {
+    const opt = join(prefix, "opt", name, rest);
+    if (exists(opt)) return opt;
+  }
+  return real;
+}
+
+/** Whether `target` is the hook script, run under `node`, rather than an executable run with `hook`. */
+function isScriptTarget(target: string): boolean {
+  return target.endsWith(".js");
+}
+
 /** The compiled hook files shipped with this package, next to this module. */
 export function bundledHookDir(): string {
   return dirname(fileURLToPath(import.meta.url));
@@ -117,11 +155,11 @@ export function eventsToInstall(streamTiming = false): readonly SidecarEvent[] {
  */
 export function areHooksInstalled(
   settingsPath: string = defaultSettingsPath(),
-  scriptPath: string = resolveHookScriptPath(),
+  target: string = defaultHookTarget(),
   events: readonly SidecarEvent[] = eventsToInstall(),
 ): boolean {
   const { parsed } = readSettingsFile(settingsPath);
-  const present = new Set(installedEvents(parsed, scriptPath));
+  const present = new Set(installedEvents(parsed, target));
   return events.every((event) => present.has(event));
 }
 
@@ -132,13 +170,13 @@ export function areHooksInstalled(
  */
 export function installedEvents(
   parsed: Settings,
-  scriptPath: string = resolveHookScriptPath(),
+  target: string = defaultHookTarget(),
 ): SidecarEvent[] {
   const hooks = (parsed.hooks ?? {}) as HooksBlock;
   const found: SidecarEvent[] = [];
   for (const event of [...PROFILER_HOOK_EVENTS, ...HIGH_VOLUME_HOOK_EVENTS]) {
     const entries = hooks[event];
-    if (Array.isArray(entries) && (entries as HookEntry[]).some((e) => isProfilerEntry(e, scriptPath))) {
+    if (Array.isArray(entries) && (entries as HookEntry[]).some((e) => isProfilerEntry(e, target))) {
       found.push(event);
     }
   }
@@ -152,8 +190,8 @@ function readSettingsFile(path: string): { raw: string; parsed: Settings; existe
   return { raw, parsed, existed: true };
 }
 
-function hookCommand(scriptPath: string): string {
-  return `node ${JSON.stringify(scriptPath)}`;
+function hookCommand(target: string): string {
+  return isScriptTarget(target) ? `node ${JSON.stringify(target)}` : `${JSON.stringify(target)} hook`;
 }
 
 /**
@@ -164,22 +202,35 @@ function hookCommand(scriptPath: string): string {
  */
 const LEGACY_COMMAND = /^node ".*claude-profiler[\\/]+dist[\\/]+hooks[\\/]+hook-script\.js"$/;
 
-function isProfilerCommand(command: string, scriptPath: string): boolean {
-  return command === hookCommand(scriptPath) || LEGACY_COMMAND.test(command);
+/** The standalone build, wherever it was installed; `cprof` is the name its symlink goes by. */
+const BINARY_COMMAND = /^"[^"]*[\\/](?:claude-profiler|cprof)" hook$/;
+
+/**
+ * Ours in any of its forms, not only the one this run would write: switching
+ * between the npm package and the standalone build rewrites the entries the
+ * other one left instead of adding a second set beside them.
+ */
+function isProfilerCommand(command: string, target: string): boolean {
+  return (
+    command === hookCommand(target) ||
+    command === hookCommand(resolveHookScriptPath()) ||
+    LEGACY_COMMAND.test(command) ||
+    BINARY_COMMAND.test(command)
+  );
 }
 
-function isProfilerEntry(entry: HookEntry, scriptPath: string): boolean {
-  return Array.isArray(entry?.hooks) && entry.hooks.some((h) => isProfilerCommand(h.command, scriptPath));
+function isProfilerEntry(entry: HookEntry, target: string): boolean {
+  return Array.isArray(entry?.hooks) && entry.hooks.some((h) => isProfilerCommand(h.command, target));
 }
 
-function commandFor(event: SidecarEvent, scriptPath: string): HookCommand {
-  const command: HookCommand = { type: "command", command: hookCommand(scriptPath) };
+function commandFor(event: SidecarEvent, target: string): HookCommand {
+  const command: HookCommand = { type: "command", command: hookCommand(target) };
   if (!SYNC_EVENTS.has(event)) command.async = true;
   return command;
 }
 
-function entryFor(event: SidecarEvent, scriptPath: string): HookEntry {
-  const hooks = [commandFor(event, scriptPath)];
+function entryFor(event: SidecarEvent, target: string): HookEntry {
+  const hooks = [commandFor(event, target)];
   return TOOL_MATCHED_EVENTS.has(event) ? { matcher: "*", hooks } : { hooks };
 }
 
@@ -189,18 +240,18 @@ function entryFor(event: SidecarEvent, scriptPath: string): HookEntry {
  * current one would otherwise record every event twice. Foreign commands are
  * untouched; an entry left with no command at all goes.
  */
-function upgradeEntries(entries: HookEntry[], event: SidecarEvent, scriptPath: string): HookEntry[] {
-  const desired = commandFor(event, scriptPath);
+function upgradeEntries(entries: HookEntry[], event: SidecarEvent, target: string): HookEntry[] {
+  const desired = commandFor(event, target);
   let kept = false;
   const upgraded: HookEntry[] = [];
   for (const entry of entries) {
-    if (!isProfilerEntry(entry, scriptPath)) {
+    if (!isProfilerEntry(entry, target)) {
       upgraded.push(entry);
       continue;
     }
     const hooks: HookCommand[] = [];
     for (const h of entry.hooks) {
-      if (!isProfilerCommand(h.command, scriptPath)) {
+      if (!isProfilerCommand(h.command, target)) {
         hooks.push(h);
       } else if (!kept) {
         const { async: _previous, ...rest } = h;
@@ -213,9 +264,9 @@ function upgradeEntries(entries: HookEntry[], event: SidecarEvent, scriptPath: s
   return upgraded;
 }
 
-function areCurrentEntries(entries: HookEntry[], event: SidecarEvent, scriptPath: string): boolean {
-  const desired = commandFor(event, scriptPath);
-  const ours = entries.flatMap((e) => e.hooks.filter((h) => isProfilerCommand(h.command, scriptPath)));
+function areCurrentEntries(entries: HookEntry[], event: SidecarEvent, target: string): boolean {
+  const desired = commandFor(event, target);
+  const ours = entries.flatMap((e) => e.hooks.filter((h) => isProfilerCommand(h.command, target)));
   return ours.length === 1 && ours[0]!.command === desired.command && ours[0]!.async === desired.async;
 }
 
@@ -236,7 +287,7 @@ function areCurrentEntries(entries: HookEntry[], event: SidecarEvent, scriptPath
  */
 export function computeInstalledSettings(
   parsed: Settings,
-  scriptPath: string,
+  target: string,
   events: readonly SidecarEvent[] = eventsToInstall(),
 ): {
   next: Settings;
@@ -258,22 +309,22 @@ export function computeInstalledSettings(
 
   for (const event of new Set([...events, ...HIGH_VOLUME_HOOK_EVENTS])) {
     const entries = entriesOf(event);
-    const ours = entries.filter((e) => isProfilerEntry(e, scriptPath));
+    const ours = entries.filter((e) => isProfilerEntry(e, target));
     if (ours.length === 0) {
       if (!events.includes(event)) continue;
-      nextHooks[event] = [...entries, entryFor(event, scriptPath)];
+      nextHooks[event] = [...entries, entryFor(event, target)];
       addedEvents.push(event);
-    } else if (!areCurrentEntries(entries, event, scriptPath)) {
-      nextHooks[event] = upgradeEntries(entries, event, scriptPath);
+    } else if (!areCurrentEntries(entries, event, target)) {
+      nextHooks[event] = upgradeEntries(entries, event, target);
       updatedEvents.push(event);
     }
   }
 
   for (const event of RETIRED_HOOK_EVENTS) {
     const entries = entriesOf(event);
-    if (!entries.some((e) => isProfilerEntry(e, scriptPath))) continue;
+    if (!entries.some((e) => isProfilerEntry(e, target))) continue;
     const kept = entries
-      .map((e) => ({ ...e, hooks: e.hooks.filter((h) => !isProfilerCommand(h.command, scriptPath)) }))
+      .map((e) => ({ ...e, hooks: e.hooks.filter((h) => !isProfilerCommand(h.command, target)) }))
       .filter((e) => e.hooks.length > 0);
     if (kept.length > 0) nextHooks[event] = kept;
     else delete nextHooks[event];
@@ -349,6 +400,11 @@ export interface InstallOptions {
   hookDir?: string;
   /** Where the compiled hook files are copied from. */
   hookSourceDir?: string;
+  /**
+   * What each hook entry runs, when not the default: the script in `hookDir`
+   * for the npm package, this executable for the standalone build.
+   */
+  hookTarget?: string;
   /** Adds the high-volume `MessageDisplay` subscription. */
   streamTiming?: boolean;
   confirm?: (diffText: string) => Promise<boolean> | boolean;
@@ -370,26 +426,32 @@ export async function installHooks(options: InstallOptions = {}): Promise<Instal
   const settingsPath = options.settingsPath ?? defaultSettingsPath();
   const backupPath = options.backupPath ?? defaultBackupPath();
   const hookDir = options.hookDir ?? defaultHookDir();
-  const scriptPath = resolveHookScriptPath(hookDir);
-  const deploy = () => deployHookScript(hookDir, options.hookSourceDir);
+  const target =
+    options.hookTarget ?? (options.hookDir !== undefined ? resolveHookScriptPath(hookDir) : defaultHookTarget());
+  // The standalone build runs itself as the hook; there is no script to copy.
+  const deploy = () => {
+    if (isScriptTarget(target)) deployHookScript(hookDir, options.hookSourceDir);
+  };
   const stdout = options.stdout ?? ((s: string) => process.stdout.write(s));
   const confirm = options.confirm ?? defaultConfirm;
   const events = eventsToInstall(options.streamTiming ?? false);
 
   const { raw, parsed, existed } = readSettingsFile(settingsPath);
-  const before = installedEvents(parsed, scriptPath);
+  const before = installedEvents(parsed, target);
   const { next, alreadyInstalled, addedEvents, updatedEvents, removedEvents } = computeInstalledSettings(
     parsed,
-    scriptPath,
+    target,
     events,
   );
   const changes = { addedEvents, updatedEvents, removedEvents };
+
+  const runsNote = isScriptTarget(target) ? `hook script refreshed in ${hookDir}` : `hooks run ${target}`;
 
   if (alreadyInstalled) {
     deploy();
     return {
       status: "already-installed",
-      message: `claude-profiler hooks are already installed (${before.length} events); hook script refreshed in ${hookDir}\n`,
+      message: `claude-profiler hooks are already installed (${before.length} events); ${runsNote}\n`,
       ...changes,
     };
   }
@@ -440,7 +502,7 @@ export async function installHooks(options: InstallOptions = {}): Promise<Instal
   const backupNote = upgrade
     ? `Pre-existing backup at ${backupPath} left untouched, so uninstall still restores your original settings.\n`
     : `Original backed up to ${backupPath}\n`;
-  const scriptNote = `Hook script deployed to ${hookDir}\n`;
+  const scriptNote = isScriptTarget(target) ? `Hook script deployed to ${hookDir}\n` : `Hooks run ${target}\n`;
 
   return { status: "installed", message: summary + scriptNote + backupNote, ...changes };
 }
