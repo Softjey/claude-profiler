@@ -437,8 +437,15 @@ export async function main(): Promise<void> {
 // Compared as URLs, not by string-building one: `import.meta.url` percent-encodes
 // spaces and non-ASCII characters, so a home directory with either would
 // otherwise never match and every hook would silently do nothing.
+//
+// In the standalone build this module is bundled into the executable: its URL
+// is the executable's, which is also `argv[1]`, so they match on every
+// command. That build calls main() itself for `hook` (see cli/standalone.ts).
+// Telling it apart by `execPath` rather than `node:sea` keeps this file
+// loadable on any Node the user's hooks happen to run under.
 const entry = process.argv[1];
-if (entry !== undefined && import.meta.url === pathToFileURL(entry).href) {
+const bundled = import.meta.url === pathToFileURL(process.execPath).href;
+if (entry !== undefined && !bundled && import.meta.url === pathToFileURL(entry).href) {
   main()
     .catch(() => {})
     .finally(() => process.exit(0));

@@ -1,6 +1,7 @@
 name: Publish
 
-# Publishes to npm when a version tag is pushed:
+# Publishes to npm, and the standalone executables to the GitHub release and
+# the Homebrew tap, when a version tag is pushed:
 #
 #   pnpm version patch   # or minor / major — bumps package.json and tags vX.Y.Z
 #   git push --follow-tags
@@ -62,3 +63,56 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
+
+  binaries:
+    uses: ./.github/workflows/binaries.yml
+
+  # Attaches the standalone executables to the release — where install.sh and
+  # the Homebrew formula download them from — and points the tap at them.
+  release-binaries:
+    needs: [publish, binaries]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          path: binaries
+          merge-multiple: true
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd binaries
+          sha256sum claude-profiler-*.tar.gz claude-profiler-*.zip > checksums.txt
+          cat checksums.txt
+          gh release upload "$GITHUB_REF_NAME" claude-profiler-*.tar.gz claude-profiler-*.zip checksums.txt --clobber
+
+      # Pushing to other repositories needs a token of its own: a fine-grained
+      # PAT with Contents read/write on Softjey/homebrew-tap and
+      # Softjey/scoop-bucket, stored as the PACKAGE_REPOS_TOKEN secret. Without
+      # it the release still goes out, and the manifests are left to update by
+      # hand.
+      - name: Update the Homebrew formula and the Scoop manifest
+        env:
+          REPOS_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+        run: |
+          if [ -z "$REPOS_TOKEN" ]; then
+            echo "::warning::PACKAGE_REPOS_TOKEN is not set; Homebrew and Scoop were not updated"
+            exit 0
+          fi
+          version="${GITHUB_REF_NAME#v}"
+          publish() { # <repo> <path in it> <generator>
+            git clone "https://x-access-token:$REPOS_TOKEN@github.com/Softjey/$1.git" "$1"
+            mkdir -p "$1/$(dirname "$2")"
+            "$3" "$version" binaries/checksums.txt > "$1/$2"
+            git -C "$1" add "$2"
+            git -C "$1" -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "claude-profiler $version"
+            git -C "$1" push
+          }
+          publish homebrew-tap Formula/claude-profiler.rb scripts/homebrew-formula.sh
+          publish scoop-bucket bucket/claude-profiler.json scripts/scoop-manifest.sh

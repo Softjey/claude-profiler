@@ -12,12 +12,14 @@ import {
   HOOK_FILES,
   installedEvents,
   installHooks,
+  resolveHookScriptPath,
+  stableExecutablePath,
 } from "./install.js";
 import { HIGH_VOLUME_HOOK_EVENTS, PROFILER_HOOK_EVENTS } from "./records.js";
 
 interface HookEntry {
   matcher?: string;
-  hooks: { type: string; command: string; async?: boolean }[];
+  hooks: { type: string; command: string; args?: string[]; async?: boolean }[];
 }
 
 /** Reads one event's entries out of loosely-typed settings. */
@@ -386,6 +388,26 @@ describe("installHooks", () => {
     expect(await readFile(join(hookDir, "hook-script.js"), "utf8")).toBe("// hook-script.js v2\n");
   });
 
+  it("deploys no script when the standalone build is the hook", async () => {
+    const hookTarget = join(dir, "bin", "claude-profiler");
+
+    const result = await installHooks({
+      settingsPath,
+      backupPath,
+      hookDir,
+      hookSourceDir,
+      hookTarget,
+      confirm: () => true,
+      stdout: () => {},
+    });
+
+    expect(result.status).toBe("installed");
+    expect(result.message).toContain(`Hooks run ${hookTarget}`);
+    expect(existsSync(hookDir)).toBe(false);
+    const written = JSON.parse(await readFile(settingsPath, "utf8")) as { hooks?: Record<string, unknown> };
+    expect(entries(written, "Stop")[0]?.hooks[0]).toEqual({ type: "command", command: hookTarget, args: ["hook"] });
+  });
+
   it("deploys nothing when the install is aborted", async () => {
     await installHooks({ settingsPath, backupPath, hookDir, hookSourceDir, confirm: () => false, stdout: () => {} });
     expect(existsSync(hookDir)).toBe(false);
@@ -428,6 +450,96 @@ describe("legacy installs pointing into the package", () => {
 
     expect(entries(next, "Stop")).toHaveLength(2);
     expect(entries(next, "Stop")[0]?.hooks[0]?.command).toBe(foreign);
+  });
+});
+
+describe("the standalone build", () => {
+  const binary = "/opt/homebrew/opt/claude-profiler/bin/claude-profiler";
+  const deployedScript = "/home/me/.claude/profiler/hooks/hook-script.js";
+  it("runs itself with `hook`, in exec form, instead of a script under node", () => {
+    const { next } = computeInstalledSettings({}, binary);
+
+    expect(entries(next, "PreToolUse")[0]?.hooks[0]).toEqual({
+      type: "command",
+      command: binary,
+      args: ["hook"],
+      async: true,
+    });
+    expect(computeInstalledSettings(next, binary).alreadyInstalled).toBe(true);
+  });
+
+  it("takes a Windows path with spaces as it is, with no shell to quote it for", () => {
+    const exe = "C:\\Users\\Jane Doe\\.local\\bin\\claude-profiler.exe";
+
+    const { next } = computeInstalledSettings({}, exe);
+
+    expect(entries(next, "Stop")).toEqual([{ hooks: [{ type: "command", command: exe, args: ["hook"] }] }]);
+    expect(computeInstalledSettings(next, exe).alreadyInstalled).toBe(true);
+  });
+
+  it("takes over the npm package's entries instead of adding a second set", () => {
+    // What the npm package wrote: the script deployed to its default place.
+    const npm = computeInstalledSettings({}, resolveHookScriptPath()).next;
+
+    const { next, addedEvents } = computeInstalledSettings(npm, binary);
+
+    expect(addedEvents).toEqual([]);
+    for (const event of PROFILER_HOOK_EVENTS) {
+      expect(entries(next, event).flatMap((e) => e.hooks.map((h) => [h.command, h.args]))).toEqual([
+        [binary, ["hook"]],
+      ]);
+    }
+  });
+
+  it("hands its entries back to the npm package the same way", () => {
+    const standalone = computeInstalledSettings({}, "/home/me/.local/bin/cprof").next;
+
+    const { next, addedEvents } = computeInstalledSettings(standalone, deployedScript);
+
+    expect(addedEvents).toEqual([]);
+    expect(entries(next, "Stop")).toEqual([{ hooks: [{ type: "command", command: `node "${deployedScript}"` }] }]);
+  });
+
+  it("leaves another tool's `hook` subcommand alone", () => {
+    const foreign = { type: "command", command: "/usr/local/bin/other-tool", args: ["hook"] };
+    const hooks = { Stop: [{ hooks: [foreign] }] };
+
+    const { next } = computeInstalledSettings({ hooks }, binary);
+
+    expect(entries(next, "Stop")).toHaveLength(2);
+    expect(entries(next, "Stop")[0]?.hooks[0]).toEqual(foreign);
+  });
+});
+
+describe("stableExecutablePath", () => {
+  const exists = () => true;
+
+  it("points a Homebrew keg at its opt link, which survives an upgrade", () => {
+    expect(stableExecutablePath("/opt/homebrew/Cellar/claude-profiler/0.2.0/bin/claude-profiler", exists)).toBe(
+      "/opt/homebrew/opt/claude-profiler/bin/claude-profiler",
+    );
+    expect(
+      stableExecutablePath("/home/linuxbrew/.linuxbrew/Cellar/claude-profiler/0.2.0/bin/claude-profiler", exists),
+    ).toBe("/home/linuxbrew/.linuxbrew/opt/claude-profiler/bin/claude-profiler");
+  });
+
+  it("keeps the keg path when there is no opt link to point at", () => {
+    const keg = "/opt/homebrew/Cellar/claude-profiler/0.2.0/bin/claude-profiler";
+    expect(stableExecutablePath(keg, () => false)).toBe(keg);
+  });
+
+  it("points a Scoop version directory at its current junction, backslashes and all", () => {
+    expect(stableExecutablePath("C:\\Users\\me\\scoop\\apps\\claude-profiler\\0.2.0\\claude-profiler.exe", exists)).toBe(
+      "C:\\Users\\me\\scoop\\apps\\claude-profiler\\current\\claude-profiler.exe",
+    );
+    const current = "C:\\ProgramData\\scoop\\apps\\claude-profiler\\current\\claude-profiler.exe";
+    expect(stableExecutablePath(current, exists)).toBe(current);
+  });
+
+  it("keeps any other location as it is", () => {
+    expect(stableExecutablePath("/home/me/.local/bin/claude-profiler", exists)).toBe(
+      "/home/me/.local/bin/claude-profiler",
+    );
   });
 });
 

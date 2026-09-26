@@ -7,7 +7,11 @@ on:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -22,3 +26,6 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify
+
+  binaries:
+    uses: ./.github/workflows/binaries.yml
