@@ -22,7 +22,9 @@ npm install -g claude-profiler
 ```
 
 Without Node, or with an older one, use the standalone build. It is one executable that
-carries its own Node, for macOS and Linux on arm64 and x64:
+carries its own Node, for macOS, Linux and Windows on arm64 and x64.
+
+macOS and Linux:
 
 ```sh
 brew install softjey/tap/claude-profiler
@@ -30,11 +32,23 @@ brew install softjey/tap/claude-profiler
 curl -fsSL https://raw.githubusercontent.com/Softjey/claude-profiler/master/install.sh | sh
 ```
 
-`install.sh` puts it in `~/.local/bin` (set `CPROF_INSTALL_DIR` to change that, or
-`CPROF_VERSION` to pin a release) and verifies its checksum. Running it again upgrades in
-place. You can also download an archive from the
-[releases](https://github.com/Softjey/claude-profiler/releases) page yourself. Both install
-it as `claude-profiler` and `cprof`.
+Windows (PowerShell):
+
+```powershell
+scoop bucket add softjey https://github.com/Softjey/scoop-bucket
+scoop install claude-profiler
+# or
+irm https://raw.githubusercontent.com/Softjey/claude-profiler/master/install.ps1 | iex
+```
+
+The install scripts put it in `~/.local/bin` (`%USERPROFILE%\.local\bin` on Windows, which
+`install.ps1` adds to your PATH), verify its checksum, and upgrade in place when run again.
+Set `CPROF_INSTALL_DIR` to install elsewhere, or `CPROF_VERSION` to pin a release. You can
+also download an archive from the [releases](https://github.com/Softjey/claude-profiler/releases)
+page yourself. Every method installs it as both `claude-profiler` and `cprof`.
+
+Windows may warn about an unrecognized app the first time you run it, because the
+executable is not code-signed.
 
 ## What it looks like
 
@@ -155,8 +169,8 @@ claude-profiler uninstall-hooks                 # restores your original setting
   writing it. It backs up your settings first.
 - From npm, the hook script is copied to `~/.claude/profiler/hooks/`, so it still works
   after `npx` clears its cache. The standalone build registers itself instead, as
-  `claude-profiler hook`, from where it is installed; for Homebrew that is the `opt` path,
-  which survives `brew upgrade`. Switching between the two and running `install-hooks`
+  `claude-profiler hook`, from where it is installed; for Homebrew and Scoop that is the
+  path that survives an upgrade (`opt`, `current`). Switching between the two and running `install-hooks`
   again replaces the other one's entries.
 - Every hook event starts a short-lived process: about 25ms for the npm script and 60ms
   for the standalone build, which loads the whole CLI. All but `Stop`, `StopFailure` and

@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isSea } from "node:sea";
 import { dirname, join } from "node:path";
@@ -92,26 +92,32 @@ export function defaultHookTarget(): string {
 }
 
 /**
- * `execPath` as a path that survives an upgrade. Homebrew runs a formula from
- * a versioned keg — `<prefix>/Cellar/<name>/<version>/bin/…` — that the next
- * `brew upgrade` deletes; its `<prefix>/opt/<name>` link always points at the
- * current one. Any other location is where the user put the binary, and an
- * upgrade replaces it in place.
+ * Versioned install directories, each with the link that always points at the
+ * current version. Homebrew runs a formula from `<prefix>/Cellar/<name>/<version>/`
+ * and links `<prefix>/opt/<name>`; Scoop installs to `scoop/apps/<name>/<version>/`
+ * and links `scoop/apps/<name>/current`. The next upgrade deletes the versioned
+ * one. Separators are kept as found, so a Windows path stays one.
+ */
+const VERSIONED_INSTALLS: readonly [RegExp, string][] = [
+  [/([\\/])Cellar([\\/][^\\/]+)[\\/][^\\/]+(?=[\\/])/, "$1opt$2"],
+  [/([\\/]scoop[\\/]apps[\\/][^\\/]+[\\/])(?!current[\\/])[^\\/]+(?=[\\/])/i, "$1current"],
+];
+
+/**
+ * `execPath` as a path that survives an upgrade: a package manager's versioned
+ * directory becomes the link to its current version, when that link exists.
+ * Any other location is where the user put the binary, and an upgrade replaces
+ * it in place. Not resolved through links on purpose: Node already reports the
+ * real file on macOS and Linux, and on Windows the path as launched is Scoop's
+ * `current` junction, which resolving would turn back into a version.
  */
 export function stableExecutablePath(execPath: string, exists: (path: string) => boolean = existsSync): string {
-  let real = execPath;
-  try {
-    real = realpathSync(execPath);
-  } catch {
-    // Keep the path as given.
+  for (const [versioned, current] of VERSIONED_INSTALLS) {
+    if (!versioned.test(execPath)) continue;
+    const stable = execPath.replace(versioned, current);
+    if (exists(stable)) return stable;
   }
-  const keg = /^(.*)[\\/]Cellar[\\/]([^\\/]+)[\\/][^\\/]+[\\/](.+)$/.exec(real);
-  const [, prefix, name, rest] = keg ?? [];
-  if (prefix !== undefined && name !== undefined && rest !== undefined) {
-    const opt = join(prefix, "opt", name, rest);
-    if (exists(opt)) return opt;
-  }
-  return real;
+  return execPath;
 }
 
 /** Whether `target` is the hook script, run under `node`, rather than an executable run with `hook`. */

@@ -40,6 +40,35 @@ jobs:
       - run: scripts/build-binary.sh
         shell: bash
 
+      # The install scripts, end to end, against this build served locally
+      # the way a release serves it.
+      - name: Write checksums.txt
+        shell: bash
+        run: |
+          cd build/binary
+          if command -v sha256sum >/dev/null; then sha256sum claude-profiler-*.*; else shasum -a 256 claude-profiler-*.*; fi > checksums.txt
+
+      - name: Install with install.sh
+        if: runner.os != 'Windows'
+        run: |
+          python3 -m http.server 8765 --directory build/binary >/dev/null 2>&1 &
+          sleep 2
+          CPROF_DOWNLOAD_BASE=http://127.0.0.1:8765 CPROF_INSTALL_DIR="$RUNNER_TEMP/bin" sh install.sh
+          test "$("$RUNNER_TEMP/bin/cprof" --version)" = "$(node -p "require('./package.json').version")"
+
+      - name: Install with install.ps1
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Start-Process python -ArgumentList '-m', 'http.server', '8765', '--directory', 'build/binary' -NoNewWindow
+          Start-Sleep -Seconds 2
+          $env:CPROF_DOWNLOAD_BASE = 'http://127.0.0.1:8765'
+          $env:CPROF_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'bin'
+          ./install.ps1
+          $expected = node -p "require('./package.json').version"
+          $actual = & (Join-Path $env:CPROF_INSTALL_DIR 'cprof.cmd') --version
+          if ($actual -ne $expected) { throw "installed cprof reports '$actual', expected '$expected'" }
+
       - uses: actions/upload-artifact@v4
         with:
           name: binary-${{ matrix.target }}

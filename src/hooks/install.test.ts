@@ -528,6 +528,14 @@ describe("stableExecutablePath", () => {
     expect(stableExecutablePath(keg, () => false)).toBe(keg);
   });
 
+  it("points a Scoop version directory at its current junction, backslashes and all", () => {
+    expect(stableExecutablePath("C:\\Users\\me\\scoop\\apps\\claude-profiler\\0.2.0\\claude-profiler.exe", exists)).toBe(
+      "C:\\Users\\me\\scoop\\apps\\claude-profiler\\current\\claude-profiler.exe",
+    );
+    const current = "C:\\ProgramData\\scoop\\apps\\claude-profiler\\current\\claude-profiler.exe";
+    expect(stableExecutablePath(current, exists)).toBe(current);
+  });
+
   it("keeps any other location as it is", () => {
     expect(stableExecutablePath("/home/me/.local/bin/claude-profiler", exists)).toBe(
       "/home/me/.local/bin/claude-profiler",

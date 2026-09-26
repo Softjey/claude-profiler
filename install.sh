@@ -6,6 +6,8 @@
 # Environment:
 #   CPROF_VERSION      a release to install, e.g. 0.2.0 (default: the latest)
 #   CPROF_INSTALL_DIR  where to put it (default: ~/.local/bin)
+#   CPROF_DOWNLOAD_BASE  where the archives are, instead of the GitHub release
+#                        (CI points it at the build it just made)
 #
 # Re-running it upgrades in place, so hooks registered by `install-hooks`,
 # which point at the installed path, keep working.
@@ -30,7 +32,9 @@ case "$(uname -m)" in
   *) fail "no prebuilt binary for $(uname -m); try 'npx claude-profiler' with Node 22+" ;;
 esac
 
-if [ -n "${CPROF_VERSION:-}" ]; then
+if [ -n "${CPROF_DOWNLOAD_BASE:-}" ]; then
+  base="$CPROF_DOWNLOAD_BASE"
+elif [ -n "${CPROF_VERSION:-}" ]; then
   base="https://github.com/$repo/releases/download/v${CPROF_VERSION#v}"
 else
   base="https://github.com/$repo/releases/latest/download"

@@ -90,25 +90,29 @@ jobs:
           cat checksums.txt
           gh release upload "$GITHUB_REF_NAME" claude-profiler-*.tar.gz claude-profiler-*.zip checksums.txt --clobber
 
-      # Pushing to another repository needs a token of its own: a fine-grained
-      # PAT with Contents read/write on Softjey/homebrew-tap, stored as the
-      # HOMEBREW_TAP_TOKEN secret. Without it the release still goes out, and
-      # the formula is left to update by hand.
-      - name: Update the Homebrew formula
+      # Pushing to other repositories needs a token of its own: a fine-grained
+      # PAT with Contents read/write on Softjey/homebrew-tap and
+      # Softjey/scoop-bucket, stored as the PACKAGE_REPOS_TOKEN secret. Without
+      # it the release still goes out, and the manifests are left to update by
+      # hand.
+      - name: Update the Homebrew formula and the Scoop manifest
         env:
-          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          REPOS_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
         run: |
-          if [ -z "$TAP_TOKEN" ]; then
-            echo "::warning::HOMEBREW_TAP_TOKEN is not set; the Homebrew formula was not updated"
+          if [ -z "$REPOS_TOKEN" ]; then
+            echo "::warning::PACKAGE_REPOS_TOKEN is not set; Homebrew and Scoop were not updated"
             exit 0
           fi
           version="${GITHUB_REF_NAME#v}"
-          git clone "https://x-access-token:$TAP_TOKEN@github.com/Softjey/homebrew-tap.git" tap
-          mkdir -p tap/Formula
-          scripts/homebrew-formula.sh "$version" binaries/checksums.txt > tap/Formula/claude-profiler.rb
-          cd tap
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Formula/claude-profiler.rb
-          git commit -m "claude-profiler $version"
-          git push
+          publish() { # <repo> <path in it> <generator>
+            git clone "https://x-access-token:$REPOS_TOKEN@github.com/Softjey/$1.git" "$1"
+            mkdir -p "$1/$(dirname "$2")"
+            "$3" "$version" binaries/checksums.txt > "$1/$2"
+            git -C "$1" add "$2"
+            git -C "$1" -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "claude-profiler $version"
+            git -C "$1" push
+          }
+          publish homebrew-tap Formula/claude-profiler.rb scripts/homebrew-formula.sh
+          publish scoop-bucket bucket/claude-profiler.json scripts/scoop-manifest.sh
