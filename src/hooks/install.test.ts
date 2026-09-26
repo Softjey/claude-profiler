@@ -19,7 +19,7 @@ import { HIGH_VOLUME_HOOK_EVENTS, PROFILER_HOOK_EVENTS } from "./records.js";
 
 interface HookEntry {
   matcher?: string;
-  hooks: { type: string; command: string; async?: boolean }[];
+  hooks: { type: string; command: string; args?: string[]; async?: boolean }[];
 }
 
 /** Reads one event's entries out of loosely-typed settings. */
@@ -405,7 +405,7 @@ describe("installHooks", () => {
     expect(result.message).toContain(`Hooks run ${hookTarget}`);
     expect(existsSync(hookDir)).toBe(false);
     const written = JSON.parse(await readFile(settingsPath, "utf8")) as { hooks?: Record<string, unknown> };
-    expect(entries(written, "Stop")[0]?.hooks[0]?.command).toBe(`${JSON.stringify(hookTarget)} hook`);
+    expect(entries(written, "Stop")[0]?.hooks[0]).toEqual({ type: "command", command: hookTarget, args: ["hook"] });
   });
 
   it("deploys nothing when the install is aborted", async () => {
@@ -456,13 +456,25 @@ describe("legacy installs pointing into the package", () => {
 describe("the standalone build", () => {
   const binary = "/opt/homebrew/opt/claude-profiler/bin/claude-profiler";
   const deployedScript = "/home/me/.claude/profiler/hooks/hook-script.js";
-  const binaryCommand = (path: string) => `${JSON.stringify(path)} hook`;
-
-  it("runs itself with `hook` instead of a script under node", () => {
+  it("runs itself with `hook`, in exec form, instead of a script under node", () => {
     const { next } = computeInstalledSettings({}, binary);
 
-    expect(entries(next, "PreToolUse")[0]?.hooks[0]?.command).toBe(binaryCommand(binary));
+    expect(entries(next, "PreToolUse")[0]?.hooks[0]).toEqual({
+      type: "command",
+      command: binary,
+      args: ["hook"],
+      async: true,
+    });
     expect(computeInstalledSettings(next, binary).alreadyInstalled).toBe(true);
+  });
+
+  it("takes a Windows path with spaces as it is, with no shell to quote it for", () => {
+    const exe = "C:\\Users\\Jane Doe\\.local\\bin\\claude-profiler.exe";
+
+    const { next } = computeInstalledSettings({}, exe);
+
+    expect(entries(next, "Stop")).toEqual([{ hooks: [{ type: "command", command: exe, args: ["hook"] }] }]);
+    expect(computeInstalledSettings(next, exe).alreadyInstalled).toBe(true);
   });
 
   it("takes over the npm package's entries instead of adding a second set", () => {
@@ -473,7 +485,9 @@ describe("the standalone build", () => {
 
     expect(addedEvents).toEqual([]);
     for (const event of PROFILER_HOOK_EVENTS) {
-      expect(entries(next, event).flatMap((e) => e.hooks.map((h) => h.command))).toEqual([binaryCommand(binary)]);
+      expect(entries(next, event).flatMap((e) => e.hooks.map((h) => [h.command, h.args]))).toEqual([
+        [binary, ["hook"]],
+      ]);
     }
   });
 
@@ -487,13 +501,13 @@ describe("the standalone build", () => {
   });
 
   it("leaves another tool's `hook` subcommand alone", () => {
-    const foreign = binaryCommand("/usr/local/bin/other-tool");
-    const hooks = { Stop: [{ hooks: [{ type: "command", command: foreign }] }] };
+    const foreign = { type: "command", command: "/usr/local/bin/other-tool", args: ["hook"] };
+    const hooks = { Stop: [{ hooks: [foreign] }] };
 
     const { next } = computeInstalledSettings({ hooks }, binary);
 
     expect(entries(next, "Stop")).toHaveLength(2);
-    expect(entries(next, "Stop")[0]?.hooks[0]?.command).toBe(foreign);
+    expect(entries(next, "Stop")[0]?.hooks[0]).toEqual(foreign);
   });
 });
 

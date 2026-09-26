@@ -19,6 +19,8 @@ jobs:
           - { runner: macos-15-intel, target: darwin-x64 }
           - { runner: ubuntu-24.04, target: linux-x64 }
           - { runner: ubuntu-24.04-arm, target: linux-arm64 }
+          - { runner: windows-2025, target: windows-x64 }
+          - { runner: windows-11-arm, target: windows-arm64 }
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -34,10 +36,12 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+      # Git Bash on Windows; the script turns its paths into native ones.
       - run: scripts/build-binary.sh
+        shell: bash
 
       - uses: actions/upload-artifact@v4
         with:
           name: binary-${{ matrix.target }}
-          path: build/binary/claude-profiler-${{ matrix.target }}.tar.gz
+          path: build/binary/claude-profiler-${{ matrix.target }}.*
           if-no-files-found: error

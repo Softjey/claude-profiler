@@ -86,9 +86,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd binaries
-          sha256sum claude-profiler-*.tar.gz > checksums.txt
+          sha256sum claude-profiler-*.tar.gz claude-profiler-*.zip > checksums.txt
           cat checksums.txt
-          gh release upload "$GITHUB_REF_NAME" claude-profiler-*.tar.gz checksums.txt --clobber
+          gh release upload "$GITHUB_REF_NAME" claude-profiler-*.tar.gz claude-profiler-*.zip checksums.txt --clobber
 
       # Pushing to another repository needs a token of its own: a fine-grained
       # PAT with Contents read/write on Softjey/homebrew-tap, stored as the

@@ -19,6 +19,8 @@ interface HookEntry {
 interface HookCommand {
   type: string;
   command: string;
+  /** Exec form: `command` is spawned directly with these arguments, no shell in between. */
+  args?: string[];
   async?: boolean;
 }
 
@@ -190,8 +192,14 @@ function readSettingsFile(path: string): { raw: string; parsed: Settings; existe
   return { raw, parsed, existed: true };
 }
 
-function hookCommand(target: string): string {
-  return isScriptTarget(target) ? `node ${JSON.stringify(target)}` : `${JSON.stringify(target)} hook`;
+/**
+ * The script runs through the shell, as `node "<path>"`, which reads the same
+ * in bash and PowerShell. The standalone build uses exec form instead: Claude
+ * Code spawns the executable itself, so no shell has to agree on how to quote a
+ * Windows path or how to run a quoted one.
+ */
+function hookCommand(target: string): Pick<HookCommand, "command" | "args"> {
+  return isScriptTarget(target) ? { command: `node ${JSON.stringify(target)}` } : { command: target, args: ["hook"] };
 }
 
 /**
@@ -203,28 +211,31 @@ function hookCommand(target: string): string {
 const LEGACY_COMMAND = /^node ".*claude-profiler[\\/]+dist[\\/]+hooks[\\/]+hook-script\.js"$/;
 
 /** The standalone build, wherever it was installed; `cprof` is the name its symlink goes by. */
-const BINARY_COMMAND = /^"[^"]*[\\/](?:claude-profiler|cprof)" hook$/;
+const BINARY_PATH = /(?:^|[\\/])(?:claude-profiler|cprof)(?:\.exe)?$/i;
 
 /**
  * Ours in any of its forms, not only the one this run would write: switching
  * between the npm package and the standalone build rewrites the entries the
  * other one left instead of adding a second set beside them.
  */
-function isProfilerCommand(command: string, target: string): boolean {
+function isProfilerCommand(hook: HookCommand, target: string): boolean {
+  if (typeof hook?.command !== "string") return false;
+  if (Array.isArray(hook.args)) {
+    return hook.args.length === 1 && hook.args[0] === "hook" && BINARY_PATH.test(hook.command);
+  }
   return (
-    command === hookCommand(target) ||
-    command === hookCommand(resolveHookScriptPath()) ||
-    LEGACY_COMMAND.test(command) ||
-    BINARY_COMMAND.test(command)
+    hook.command === hookCommand(target).command ||
+    hook.command === hookCommand(resolveHookScriptPath()).command ||
+    LEGACY_COMMAND.test(hook.command)
   );
 }
 
 function isProfilerEntry(entry: HookEntry, target: string): boolean {
-  return Array.isArray(entry?.hooks) && entry.hooks.some((h) => isProfilerCommand(h.command, target));
+  return Array.isArray(entry?.hooks) && entry.hooks.some((h) => isProfilerCommand(h, target));
 }
 
 function commandFor(event: SidecarEvent, target: string): HookCommand {
-  const command: HookCommand = { type: "command", command: hookCommand(target) };
+  const command: HookCommand = { type: "command", ...hookCommand(target) };
   if (!SYNC_EVENTS.has(event)) command.async = true;
   return command;
 }
@@ -251,10 +262,12 @@ function upgradeEntries(entries: HookEntry[], event: SidecarEvent, target: strin
     }
     const hooks: HookCommand[] = [];
     for (const h of entry.hooks) {
-      if (!isProfilerCommand(h.command, target)) {
+      if (!isProfilerCommand(h, target)) {
         hooks.push(h);
       } else if (!kept) {
-        const { async: _previous, ...rest } = h;
+        // Both go: the desired shape may have neither, and an `args` left over
+        // from the standalone build would turn the npm command into exec form.
+        const { async: _async, args: _args, ...rest } = h;
         hooks.push({ ...rest, ...desired });
         kept = true;
       }
@@ -266,8 +279,15 @@ function upgradeEntries(entries: HookEntry[], event: SidecarEvent, target: strin
 
 function areCurrentEntries(entries: HookEntry[], event: SidecarEvent, target: string): boolean {
   const desired = commandFor(event, target);
-  const ours = entries.flatMap((e) => e.hooks.filter((h) => isProfilerCommand(h.command, target)));
-  return ours.length === 1 && ours[0]!.command === desired.command && ours[0]!.async === desired.async;
+  const ours = entries.flatMap((e) => e.hooks.filter((h) => isProfilerCommand(h, target)));
+  const [only] = ours;
+  return (
+    ours.length === 1 &&
+    only !== undefined &&
+    only.command === desired.command &&
+    JSON.stringify(only.args) === JSON.stringify(desired.args) &&
+    only.async === desired.async
+  );
 }
 
 /**
@@ -324,7 +344,7 @@ export function computeInstalledSettings(
     const entries = entriesOf(event);
     if (!entries.some((e) => isProfilerEntry(e, target))) continue;
     const kept = entries
-      .map((e) => ({ ...e, hooks: e.hooks.filter((h) => !isProfilerCommand(h.command, target)) }))
+      .map((e) => ({ ...e, hooks: e.hooks.filter((h) => !isProfilerCommand(h, target)) }))
       .filter((e) => e.hooks.length > 0);
     if (kept.length > 0) nextHooks[event] = kept;
     else delete nextHooks[event];
