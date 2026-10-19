@@ -1,3 +1,4 @@
+import AppKit
 import ProfilerBarCore
 import SwiftUI
 
@@ -10,6 +11,7 @@ struct PopoverView: View {
     var chrome: Chrome = .popover
     @Environment(LiveStore.self) private var store
     @Environment(\.openSettings) private var openSettings
+    @AppStorage("earlierCollapsed") private var earlierCollapsed = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,8 +23,17 @@ struct PopoverView: View {
         }
         .frame(width: chrome == .popover ? 400 : nil)
         .frame(minWidth: chrome == .window ? 380 : nil, minHeight: chrome == .window ? 320 : nil)
+        .background {
+            if chrome == .popover { PopoverWindowFitter(trigger: layoutKey) }
+        }
         .onAppear { store.beginWatching() }
         .onDisappear { store.endWatching() }
+    }
+
+    /// Changes whenever the amount of content changes, so the window can be refit.
+    private var layoutKey: [String] {
+        (store.snapshot?.sessions ?? []).map { "\($0.id):\($0.state.isLive)" }
+            + [store.snapshot?.hooksInstalled == false ? "hint" : "", "\(earlierCollapsed)", "\(store.snapshot == nil)"]
     }
 
     // MARK: Header
@@ -101,8 +112,10 @@ struct PopoverView: View {
                         ForEach(live) { row($0, now: context.date).id("live-\($0.id)") }
                     }
                     if !ended.isEmpty {
-                        sectionTitle("Earlier today")
-                        ForEach(ended) { row($0, now: context.date).id("ended-\($0.id)") }
+                        collapsibleTitle("Earlier today", count: ended.count, collapsed: $earlierCollapsed)
+                        if !earlierCollapsed {
+                            ForEach(ended) { row($0, now: context.date).id("ended-\($0.id)") }
+                        }
                     }
                 }
                 .padding(6)
@@ -137,6 +150,28 @@ struct PopoverView: View {
             .padding(.horizontal, 10)
             .padding(.top, 8)
             .padding(.bottom, 2)
+    }
+
+    private func collapsibleTitle(_ text: String, count: Int, collapsed: Binding<Bool>) -> some View {
+        Button {
+            collapsed.wrappedValue.toggle()
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .bold))
+                    .rotationEffect(.degrees(collapsed.wrappedValue ? 0 : 90))
+                Text(text.uppercased())
+                if collapsed.wrappedValue { Text("· \(count)") }
+                Spacer()
+            }
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.tertiary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 2)
     }
 
     private var hooksHint: some View {
@@ -211,5 +246,28 @@ struct PopoverView: View {
         .buttonStyle(.borderless)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+}
+
+/// The `MenuBarExtra` window grows with its content but never shrinks back, so
+/// after sections disappear (a new day drops "Earlier today") it stays tall with
+/// the content floating in the middle. This refits the window to the content
+/// whenever it changes, keeping the top edge pinned under the menu bar.
+private struct PopoverWindowFitter: NSViewRepresentable {
+    let trigger: [String]
+
+    func makeNSView(context: Context) -> NSView { NSView() }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        DispatchQueue.main.async {
+            guard let window = view.window, let content = window.contentView else { return }
+            let fitted = content.fittingSize
+            guard fitted.height > 0, abs(window.contentLayoutRect.height - fitted.height) > 1 else { return }
+            var frame = window.frame
+            let target = window.frameRect(forContentRect: NSRect(origin: .zero, size: NSSize(width: frame.width, height: fitted.height)))
+            frame.origin.y += frame.height - target.height
+            frame.size.height = target.height
+            window.setFrame(frame, display: true)
+        }
     }
 }
