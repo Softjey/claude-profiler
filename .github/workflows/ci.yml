@@ -1,9 +1,14 @@
 name: CI
 
+# Runs on pull requests only: a merge adds nothing the PR run did not already
+# check, and release tags are covered by Publish.
 on:
-  push:
-    branches: [main, master]
   pull_request:
+
+# A new push to the same PR supersedes the run still in flight.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   verify:
