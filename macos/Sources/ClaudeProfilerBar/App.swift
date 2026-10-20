@@ -31,6 +31,7 @@ struct ClaudeProfilerBarApp: App {
     private var store: LiveStore { .shared }
 
     init() {
+        AppSettings.registerDefaults()
         if PreviewRenderer.runIfRequested() { exit(0) }
         // A menu bar app: no Dock icon, no app menu. The bundled app gets this
         // from LSUIElement; `swift run` needs it set by hand.

@@ -146,6 +146,9 @@ struct SessionDetailView: View {
                     KeyValue(label: "Tokens", value: Format.tokens(live.tokens.total))
                     KeyValue(label: "Context", value: live.contextTokens.map(Format.tokens) ?? "—")
                 }
+                if let live, let released = store.releaseHistory.record(for: live) {
+                    KeyValue(label: "Ended", value: released.title, help: released.explanation)
+                }
                 if let live, live.state.isLive {
                     KeyValue(label: "CPU", value: live.cpuPct.map { "\(Int($0.rounded()))%" } ?? "—")
                     KeyValue(label: "Memory", value: live.rssMb.map { "\($0) MB" } ?? "—")

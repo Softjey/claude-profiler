@@ -9,6 +9,8 @@ struct SessionRow: View {
     var release: (() -> Void)?
     /// Brings the chat forward in the editor, terminal or desktop app.
     var goToChat: (() -> Void)?
+    /// Set for an ended session this app quit, by the Free button or on its own.
+    var released: ReleaseHistory.Record?
     @State private var hovering = false
 
     var body: some View {
@@ -31,7 +33,11 @@ struct SessionRow: View {
                     SourceBadge(source: session.source)
                     Text(details).lineLimit(1)
                     Spacer(minLength: 0)
-                    if let seen = lastSeen {
+                    if let released {
+                        Text(released.summary(now: now))
+                            .monospacedDigit()
+                            .help(released.explanation)
+                    } else if let seen = lastSeen {
                         Text(seen).monospacedDigit()
                     }
                 }
@@ -150,5 +156,26 @@ private struct DefaultPushButtonStyle: ButtonStyle {
                 // then no hover-out arrives to undo the push.
                 .onDisappear { if hovering { NSCursor.pop() } }
         }
+    }
+}
+
+extension ReleaseHistory.Record {
+    /// "Freed 412 MB" or "Auto-freed 412 MB".
+    var title: String {
+        let verb = trigger == .auto ? "Auto-freed" : "Freed"
+        return rssMb.map { "\(verb) \($0) MB" } ?? verb
+    }
+
+    /// Takes the place of "12m ago" on an ended row.
+    func summary(now: Date) -> String {
+        "\(trigger == .auto ? "auto-freed" : "freed") \(Format.duration(seconds: now.timeIntervalSince(at))) ago"
+    }
+
+    var explanation: String {
+        let how = trigger == .auto
+            ? "Freed automatically after sitting idle (Settings → Memory)"
+            : "Freed with the Free button"
+        let memory = rssMb.map { ", \($0) MB" } ?? ""
+        return "\(how)\(memory). The chat is kept: continue it with claude --resume."
     }
 }

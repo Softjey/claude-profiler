@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Observation
+import os
 import ProfilerBarCore
 
 /// The app's single source of truth: the latest snapshot from the collector,
@@ -26,6 +27,8 @@ final class LiveStore {
     private(set) var profiles: [String: ProfileState] = [:]
     private(set) var status: Status = .starting
     private(set) var lastCollectorError: String?
+    /// How the sessions this app ended were ended, so an ended row can say so.
+    private(set) var releaseHistory = LiveStore.loadReleaseHistory()
 
     @ObservationIgnored private var collector: CollectorProcess?
     @ObservationIgnored private var restartDelay: TimeInterval = 1
@@ -35,6 +38,7 @@ final class LiveStore {
     @ObservationIgnored private var openWindowAction: ((String, String?) -> Void)?
     @ObservationIgnored private var watchedProfiles: [String: Int] = [:]
     @ObservationIgnored private var profileRequests: [String: (activityAt: Double, at: Date)] = [:]
+    @ObservationIgnored private var autoReleaser = AutoReleaser()
 
     /// One store per app. The AppKit delegate needs to reach it from outside
     /// the SwiftUI scene tree, to open the window on reopen and first launch.
@@ -46,12 +50,14 @@ final class LiveStore {
     init(preview: LiveSnapshot, profile: (id: String, value: Profile)? = nil) {
         snapshot = preview
         status = .running
+        releaseHistory = ReleaseHistory()
         if let profile {
             profiles[profile.id] = .loaded(profile.value)
             watchedProfiles[profile.id] = 1
         }
     }
 
+    private static let log = Logger(subsystem: "io.github.softjey.claude-profiler", category: "LiveStore")
     private static let fastRateMs = 1_000
     private static let slowRateMs = 5_000
     /// A busy session re-parses its whole transcript per profile, so a detail
@@ -112,15 +118,63 @@ final class LiveStore {
     /// Ends a live session's process, then asks the collector for a snapshot
     /// right away so the row moves to "Earlier today".
     func release(_ session: LiveSession) {
+        performRelease(session, trigger: .manual) { result in
+            if case .failure(let failure) = result { Actions.reportReleaseFailure(failure) }
+        }
+    }
+
+    private func performRelease(
+        _ session: LiveSession,
+        trigger: ReleaseHistory.Record.Trigger,
+        onResult: @escaping @MainActor (Result<Void, SessionRelease.Failure>) -> Void
+    ) {
         guard let pid = session.pid, session.state.isLive else { return }
         let id = session.id
         Task.detached {
             let result = SessionRelease.release(pid: Int32(pid), sessionId: id)
             await MainActor.run {
-                if case .failure(let failure) = result { Actions.reportReleaseFailure(failure) }
+                if case .success = result {
+                    self.recordRelease(ReleaseHistory.Record(trigger: trigger, at: Date(), rssMb: session.rssMb), sessionId: id)
+                }
+                onResult(result)
                 self.collector?.refresh()
             }
         }
+    }
+
+    /// Releases the sessions that sat idle past the Memory settings' threshold.
+    /// A failure gets no modal alert nobody asked for — it is logged, and the
+    /// session just stays.
+    private func releaseIdleSessions(in snapshot: LiveSnapshot) {
+        let due = autoReleaser.sessionsToRelease(
+            in: snapshot,
+            policy: AutoReleaser.Policy(defaults: .standard),
+            watched: Set(watchedProfiles.keys)
+        )
+        for session in due {
+            performRelease(session, trigger: .auto) { [notifier] result in
+                switch result {
+                case .success: notifier.notifyReleased(session)
+                case .failure(let failure): Self.log.error("Could not release idle session \(session.id, privacy: .public): \(String(describing: failure), privacy: .public)")
+                }
+            }
+        }
+    }
+
+    private func recordRelease(_ record: ReleaseHistory.Record, sessionId: String) {
+        var history = releaseHistory.pruned()
+        history.add(record, sessionId: sessionId)
+        releaseHistory = history
+        if let data = try? JSONEncoder().encode(history) {
+            UserDefaults.standard.set(data, forKey: SettingsKey.releaseHistory)
+        }
+    }
+
+    private static func loadReleaseHistory() -> ReleaseHistory {
+        guard let data = UserDefaults.standard.data(forKey: SettingsKey.releaseHistory),
+              let history = try? JSONDecoder().decode(ReleaseHistory.self, from: data)
+        else { return ReleaseHistory() }
+        return history.pruned()
     }
 
     /// Starts following one session's full profile — the same artifact the
@@ -175,6 +229,7 @@ final class LiveStore {
         case .snapshot(let next):
             notifier.compare(previous: snapshot, next: next)
             refreshWatchedProfiles(for: next)
+            releaseIdleSessions(in: next)
             snapshot = next
             status = .running
             restartDelay = 1
