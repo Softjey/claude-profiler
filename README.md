@@ -266,6 +266,15 @@ Each running session has two buttons:
   `claude --resume <id>` to pick it up later. Before signalling, the app checks that the
   pid still belongs to that session, so a recycled pid is never touched.
 
+Settings → **Memory** can do the same on its own: **Free idle sessions automatically**
+frees a session once it has sat idle past a threshold you pick and holds at least the
+memory you pick. It is off by default. Only idle sessions count, and a minute of real CPU
+load in the session's process tree, like a background build, restarts the idle clock.
+Sessions with an open detail window are kept. By default only terminal sessions are freed,
+because an editor or the desktop app shows an error when its process goes away. A
+notification says what was freed, and an ended session the app quit is marked "freed" or
+"auto-freed" in the list and in its window.
+
 Click a session and you get **everything the terminal UI has**, for that session, kept up
 to date as it runs — the app asks the collector for the same profile artifact the CLI
 builds, so no metric is computed twice. The tabs are [the same seven](#screens), in the

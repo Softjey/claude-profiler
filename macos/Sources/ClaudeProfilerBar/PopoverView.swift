@@ -130,7 +130,8 @@ struct PopoverView: View {
             session: session,
             now: now,
             release: session.state.isLive && session.pid != nil ? { store.release(session) } : nil,
-            goToChat: session.state.isLive ? { Actions.goToChat(session) } : nil
+            goToChat: session.state.isLive ? { Actions.goToChat(session) } : nil,
+            released: store.releaseHistory.record(for: session)
         )
             .onTapGesture { store.openSessionWindow(id: session.id) }
             .contextMenu {

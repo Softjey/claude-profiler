@@ -223,3 +223,195 @@ private let snapshotLine = #"""
     #expect(chain.count >= 2)
     #expect(ChatLocation.parent(of: me) == getppid())
 }
+
+private func liveSnapshot(_ sessionJSONs: [String]) throws -> LiveSnapshot {
+    let line = #"{"v":1,"type":"snapshot","at":1,"hooksInstalled":true,"today":{"tokens":0,"sessions":0,"costUsd":null},"sessions":["#
+        + sessionJSONs.joined(separator: ",") + "]}"
+    guard case .snapshot(let snapshot) = try #require(LiveMessage.decode(Data(line.utf8))) else {
+        throw CocoaError(.coderReadCorrupt)
+    }
+    return snapshot
+}
+
+private func sessionJSON(
+    id: String = "s",
+    state: String = "idle",
+    source: String = "cli",
+    pid: Int = 100,
+    cpu: Double? = 0.3,
+    rss: Int? = 800
+) -> String {
+    let cpu = cpu.map { "\($0)" } ?? "null"
+    let rss = rss.map { "\($0)" } ?? "null"
+    return #"{"id":"\#(id)","title":null,"cwd":null,"source":"\#(source)","state":"\#(state)","pid":\#(pid),"#
+        + #""startedAt":1,"lastActivityAt":1,"model":null,"tokens":{"input":0,"output":0,"cacheRead":0,"cacheCreate":0},"#
+        + #""tokensToday":0,"contextTokens":null,"costUsd":null,"subagents":0,"cpuPct":\#(cpu),"rssMb":\#(rss),"#
+        + #""activity":null,"burn":[],"transcriptPath":null}"#
+}
+
+private let hourPolicy = AutoReleaser.Policy(minimumIdleDuration: 3_600, minimumRssMb: 500, scope: .cli)
+private let releaseStart = Date(timeIntervalSince1970: 1_000_000)
+
+/// Feeds `snapshot` every `step` seconds from `from` up to, not including, `to`.
+private func feed(
+    _ releaser: inout AutoReleaser,
+    _ snapshot: LiveSnapshot,
+    from: TimeInterval,
+    to: TimeInterval,
+    step: TimeInterval = 5,
+    watched: Set<String> = []
+) -> [String] {
+    var released: [String] = []
+    for offset in stride(from: from, to: to, by: step) {
+        released += releaser.sessionsToRelease(
+            in: snapshot, policy: hourPolicy, watched: watched, now: releaseStart.addingTimeInterval(offset)
+        ).map(\.id)
+    }
+    return released
+}
+
+@Test func autoReleaserReleasesASessionOnceItHasBeenIdleLongEnough() throws {
+    var releaser = AutoReleaser()
+    let idle = try liveSnapshot([sessionJSON()])
+
+    #expect(releaser.sessionsToRelease(in: idle, policy: hourPolicy, now: releaseStart).isEmpty)
+    #expect(releaser.sessionsToRelease(in: idle, policy: hourPolicy, now: releaseStart.addingTimeInterval(3_599)).isEmpty)
+    #expect(releaser.sessionsToRelease(in: idle, policy: hourPolicy, now: releaseStart.addingTimeInterval(3_600)).map(\.id) == ["s"])
+    // Handed out once: a release that failed is not retried every snapshot.
+    #expect(releaser.sessionsToRelease(in: idle, policy: hourPolicy, now: releaseStart.addingTimeInterval(4_000)).isEmpty)
+}
+
+@Test func autoReleaserRestartsTheIdleClockWhenTheSessionWorks() throws {
+    var releaser = AutoReleaser()
+    let idle = try liveSnapshot([sessionJSON()])
+
+    _ = releaser.sessionsToRelease(in: idle, policy: hourPolicy, now: releaseStart)
+    _ = releaser.sessionsToRelease(in: try liveSnapshot([sessionJSON(state: "busy")]), policy: hourPolicy, now: releaseStart.addingTimeInterval(1_800))
+    #expect(releaser.sessionsToRelease(in: idle, policy: hourPolicy, now: releaseStart.addingTimeInterval(1_805)).isEmpty)
+    #expect(releaser.sessionsToRelease(in: idle, policy: hourPolicy, now: releaseStart.addingTimeInterval(5_404)).isEmpty)
+    #expect(releaser.sessionsToRelease(in: idle, policy: hourPolicy, now: releaseStart.addingTimeInterval(5_405)).map(\.id) == ["s"])
+}
+
+@Test func autoReleaserKeepsASessionUnderLoadEvenThroughItsDips() throws {
+    var releaser = AutoReleaser()
+    let building = try liveSnapshot([sessionJSON(cpu: 60)])
+    let waitingOnDisk = try liveSnapshot([sessionJSON(cpu: 1)])
+
+    // A build that waits on disk every other sample still averages well over the threshold.
+    var released: [String] = []
+    for offset in stride(from: 0.0, to: 7_200, by: 10) {
+        released += feed(&releaser, building, from: offset, to: offset + 5)
+        released += feed(&releaser, waitingOnDisk, from: offset + 5, to: offset + 10)
+    }
+    #expect(released.isEmpty)
+    // Once it stops, the hour starts from the last loaded minute.
+    #expect(feed(&releaser, waitingOnDisk, from: 7_200, to: 10_700).isEmpty)
+    #expect(feed(&releaser, waitingOnDisk, from: 10_700, to: 10_900) == ["s"])
+}
+
+@Test func autoReleaserShrugsOffAnIdleSessionsCpuSpikes() throws {
+    var releaser = AutoReleaser()
+    let idle = try liveSnapshot([sessionJSON()])
+    let spike = try liveSnapshot([sessionJSON(cpu: 30)])
+
+    // A 30% sample once a minute, the way an idle prompt's MCP servers do.
+    var released: [String] = []
+    for offset in stride(from: 0.0, to: 3_660, by: 60) {
+        released += feed(&releaser, spike, from: offset, to: offset + 5)
+        released += feed(&releaser, idle, from: offset + 5, to: offset + 60)
+    }
+    #expect(released == ["s"])
+}
+
+@Test func autoReleaserCountsIdleTimeEvenWhileOff() throws {
+    var releaser = AutoReleaser()
+    let idle = try liveSnapshot([sessionJSON()])
+
+    #expect(releaser.sessionsToRelease(in: idle, policy: nil, now: releaseStart).isEmpty)
+    #expect(releaser.sessionsToRelease(in: idle, policy: nil, now: releaseStart.addingTimeInterval(7_200)).isEmpty)
+    #expect(releaser.sessionsToRelease(in: idle, policy: hourPolicy, now: releaseStart.addingTimeInterval(7_201)).map(\.id) == ["s"])
+}
+
+@Test func autoReleaserSurvivesAMissedCpuSample() throws {
+    var releaser = AutoReleaser()
+    let idle = try liveSnapshot([sessionJSON()])
+    let unmeasured = try liveSnapshot([sessionJSON(cpu: nil)])
+
+    _ = releaser.sessionsToRelease(in: idle, policy: hourPolicy, now: releaseStart)
+    // No figure, no release — but the clock keeps running.
+    #expect(releaser.sessionsToRelease(in: unmeasured, policy: hourPolicy, now: releaseStart.addingTimeInterval(3_600)).isEmpty)
+    #expect(releaser.sessionsToRelease(in: idle, policy: hourPolicy, now: releaseStart.addingTimeInterval(3_605)).map(\.id) == ["s"])
+}
+
+@Test func autoReleaserCountsAnOpenWindowAsActivity() throws {
+    var releaser = AutoReleaser()
+    let idle = try liveSnapshot([sessionJSON()])
+
+    #expect(feed(&releaser, idle, from: 0, to: 7_200, watched: ["s"]).isEmpty)
+    // The window closed after the 7_195 s sample: the hour starts there, not when the session went idle.
+    #expect(feed(&releaser, idle, from: 7_200, to: 10_795).isEmpty)
+    #expect(feed(&releaser, idle, from: 10_795, to: 10_800) == ["s"])
+}
+
+@Test func autoReleaserSkipsWhatShouldStay() throws {
+    var releaser = AutoReleaser()
+    let sessions = try liveSnapshot([
+        sessionJSON(id: "small", rss: 499),
+        sessionJSON(id: "edge", pid: 105, rss: 500),
+        sessionJSON(id: "unmeasured", cpu: nil, rss: nil),
+        sessionJSON(id: "editor", source: "vscode", pid: 101),
+        sessionJSON(id: "waiting", state: "waiting", pid: 103),
+        sessionJSON(id: "big", pid: 104),
+    ])
+
+    _ = releaser.sessionsToRelease(in: sessions, policy: hourPolicy, now: releaseStart)
+    #expect(releaser.sessionsToRelease(in: sessions, policy: hourPolicy, now: releaseStart.addingTimeInterval(3_600)).map(\.id) == ["edge", "big"])
+
+    var anySource = AutoReleaser()
+    let all = AutoReleaser.Policy(minimumIdleDuration: 3_600, minimumRssMb: 500, scope: .all)
+    _ = anySource.sessionsToRelease(in: sessions, policy: all, now: releaseStart)
+    #expect(anySource.sessionsToRelease(in: sessions, policy: all, now: releaseStart.addingTimeInterval(3_600)).map(\.id) == ["edge", "editor", "big"])
+}
+
+@Test func autoReleaserTreatsAResumedSessionAsNew() throws {
+    var releaser = AutoReleaser()
+
+    _ = releaser.sessionsToRelease(in: try liveSnapshot([sessionJSON(pid: 100)]), policy: hourPolicy, now: releaseStart)
+    #expect(releaser.sessionsToRelease(in: try liveSnapshot([sessionJSON(pid: 100)]), policy: hourPolicy, now: releaseStart.addingTimeInterval(3_600)).count == 1)
+    // `claude --resume` brings the same id back in a new process.
+    let resumed = try liveSnapshot([sessionJSON(pid: 200)])
+    #expect(releaser.sessionsToRelease(in: resumed, policy: hourPolicy, now: releaseStart.addingTimeInterval(4_000)).isEmpty)
+    #expect(releaser.sessionsToRelease(in: resumed, policy: hourPolicy, now: releaseStart.addingTimeInterval(7_600)).count == 1)
+}
+
+@Test func releaseHistoryExplainsAnEndedSessionUntilItIsResumedAndUsed() throws {
+    let releasedAt = Date(timeIntervalSince1970: 1_000_000)
+    var history = ReleaseHistory()
+    history.add(.init(trigger: .auto, at: releasedAt, rssMb: 412), sessionId: "s")
+
+    func ended(lastActivityAt seconds: TimeInterval) throws -> LiveSession {
+        let json = sessionJSON(state: "ended").replacingOccurrences(of: #""lastActivityAt":1"#, with: #""lastActivityAt":\#(seconds * 1_000)"#)
+        return try #require(liveSnapshot([json]).sessions.first)
+    }
+
+    #expect(history.record(for: try ended(lastActivityAt: 996_400))?.trigger == .auto)
+    // What Claude Code writes as it exits is part of the release.
+    #expect(history.record(for: try ended(lastActivityAt: 1_000_030)) != nil)
+    // Resumed and used since: the mark no longer explains how it ended.
+    #expect(history.record(for: try ended(lastActivityAt: 1_003_600)) == nil)
+    // A running session shows its live state, not the old release.
+    #expect(history.record(for: try #require(liveSnapshot([sessionJSON()]).sessions.first)) == nil)
+}
+
+@Test func releaseHistoryKeepsADayAndSurvivesARoundTrip() throws {
+    let now = Date(timeIntervalSince1970: 1_000_000)
+    var history = ReleaseHistory()
+    history.add(.init(trigger: .manual, at: now.addingTimeInterval(-90_000), rssMb: nil), sessionId: "old")
+    history.add(.init(trigger: .manual, at: now.addingTimeInterval(-60), rssMb: 300), sessionId: "s")
+
+    let decoded = try JSONDecoder().decode(ReleaseHistory.self, from: JSONEncoder().encode(history.pruned(now: now)))
+    let ended = try #require(liveSnapshot([sessionJSON(state: "ended")]).sessions.first)
+    let old = try #require(liveSnapshot([sessionJSON(id: "old", state: "ended")]).sessions.first)
+    #expect(decoded.record(for: ended) == .init(trigger: .manual, at: now.addingTimeInterval(-60), rssMb: 300))
+    #expect(decoded.record(for: old) == nil)
+}
